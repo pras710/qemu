@@ -15,7 +15,7 @@ int CPU_tracer = 1;
 //PRAS: original int CPU_tracer = 0;
 int ICOUNT_tracer = 0;
 
-char *needed_proc_name = "calendar";//
+char *needed_proc_name = "facebook";//
 char pid_string[10] = "(  000: ";//this is how logcat -v thread
 char garb_string[10] = "(  000: ";//this is how logcat -v thread
 int needed_pid = -1, garb_pid = -1;

@@ -1486,6 +1486,11 @@ void target_disas(FILE *out, CPUArchState *env, target_ulong code,
 			{
 				printf("%d, Lookup: %x %d\n",getMeContextId(env),  code, size);
 			}
+			//if(s.info.symbols)
+			//{
+			//	printf("%s\n", s.info.symbols[0]);
+			//	exit(0);
+			//}
 		}
 }
 
