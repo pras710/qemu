@@ -1,0 +1,2218 @@
+
+project art/
+diff --git a/runtime/jni_internal.cc b/runtime/jni_internal.cc
+index df863f0..a0a837f 100644
+--- a/runtime/jni_internal.cc
++++ b/runtime/jni_internal.cc
+@@ -2382,7 +2382,7 @@ class JNI {
+         return JNI_ERR;
+       }
+ 
+-      VLOG(jni) << "[Registering JNI native method " << PrettyMethod(m) << "]";
++      LOG(INFO) << "pras: [Registering JNI native method " << PrettyMethod(m) << "]"<<std::hex<<(uint32_t)methods[i].fnPtr<<std::dec<<std::endl;
+ 
+       m->RegisterNative(soa.Self(), methods[i].fnPtr);
+     }
+@@ -3236,7 +3236,7 @@ bool JavaVMExt::LoadNativeLibrary(const std::string& path, ClassLoader* class_lo
+     } else {
+       was_successful = true;
+     }
+-    VLOG(jni) << "[Returned " << (was_successful ? "successfully" : "failure")
++    LOG(INFO) << "pras: [Returned " << (was_successful ? "successfully" : "failure")
+               << " from JNI_OnLoad in \"" << path << "\"]";
+   }
+ 
+
+project bionic/
+diff --git a/libc/bionic/debug_mapinfo.cpp b/libc/bionic/debug_mapinfo.cpp
+index c5b9aa7..d94b8a9 100644
+--- a/libc/bionic/debug_mapinfo.cpp
++++ b/libc/bionic/debug_mapinfo.cpp
+@@ -64,6 +64,7 @@ __LIBC_HIDDEN__ mapinfo_t* mapinfo_create(pid_t pid) {
+   FILE* fp = fopen(data, "r");
+   if (fp != NULL) {
+     while (fgets(data, sizeof(data), fp) != NULL) {
++		printf("PRASF: procmaps: %s\n", data);
+       mapinfo_t* mi = parse_maps_line(data);
+       if (mi) {
+         mi->next = milist;
+@@ -88,6 +89,7 @@ __LIBC_HIDDEN__ const mapinfo_t* mapinfo_find(mapinfo_t* mi, uintptr_t pc, uintp
+   for (; mi != NULL; mi = mi->next) {
+     if ((pc >= mi->start) && (pc < mi->end)) {
+       *rel_pc = pc - mi->start;
++	  printf("PRASF: %x to %x", (uint32_t)rel_pc, (uint32_t)pc);
+       return mi;
+     }
+   }
+diff --git a/libc/bionic/fork.c b/libc/bionic/fork.c
+index d83c535..3eb904e 100644
+--- a/libc/bionic/fork.c
++++ b/libc/bionic/fork.c
+@@ -41,6 +41,7 @@ int  fork(void)
+      * going to stop all timers now, and only re-start them in case
+      * of error, or in the parent process
+      */
++	printf("PRASF fork: %x\n",(uint32_t) __fork);
+     __timer_table_start_stop(1);
+     __bionic_atfork_run_prepare();
+ 
+diff --git a/linker/Android.mk b/linker/Android.mk
+index d1773a8..f227a1c 100644
+--- a/linker/Android.mk
++++ b/linker/Android.mk
+@@ -37,7 +37,8 @@ endif
+ ifeq ($(TARGET_ARCH),mips)
+     LOCAL_CFLAGS += -DANDROID_MIPS_LINKER
+ endif
+-
++#//pras:
++#LOCAL_CFLAGS += -DLD_DEBUG=1
+ LOCAL_MODULE:= linker
+ LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
+ 
+diff --git a/linker/linker.cpp b/linker/linker.cpp
+index 623be29..b206f0d 100644
+--- a/linker/linker.cpp
++++ b/linker/linker.cpp
+@@ -316,6 +316,7 @@ static soinfo* soinfo_alloc(const char* name) {
+   sonext = si;
+ 
+   TRACE("name %s: allocated soinfo @ %p", name, si);
++  __libc_format_log(5, "PRASLINKER","pras: name %s: allocated soinfo @ %x", name, (uint32_t)si->load_bias);//pras changed
+   return si;
+ }
+ 
+@@ -328,6 +329,7 @@ static void soinfo_free(soinfo* si)
+     soinfo *prev = NULL, *trav;
+ 
+     TRACE("name %s: freeing soinfo @ %p", si->name, si);
++    //__libc_format_log(5, "PRASLINKER", "pras: name %s: freeing soinfo @ %p", si->name, si);
+ 
+     for (trav = solist; trav != NULL; trav = trav->next) {
+         if (trav == si)
+@@ -443,6 +445,8 @@ static Elf32_Sym* soinfo_elf_lookup(soinfo* si, unsigned hash, const char* name)
+     Elf32_Sym* symtab = si->symtab;
+     const char* strtab = si->strtab;
+ 
++    //__libc_format_log(5, "PRASLINKER", "pras: SEARCH %s in %s@0x%08x %08x %d",
++    //           name, si->name, si->base, hash, hash % si->nbucket);
+     TRACE_TYPE(LOOKUP, "SEARCH %s in %s@0x%08x %08x %d",
+                name, si->name, si->base, hash, hash % si->nbucket);
+ 
+@@ -458,6 +462,8 @@ static Elf32_Sym* soinfo_elf_lookup(soinfo* si, unsigned hash, const char* name)
+                 continue;
+             }
+ 
++            __libc_format_log(5, "PRASLINKER", "pras: FOUND %s in %s (%08x) %d, %x",
++                       name, si->name, s->st_value, s->st_size, (uint32_t)si->load_bias);//pras changed
+             TRACE_TYPE(LOOKUP, "FOUND %s in %s (%08x) %d",
+                        name, si->name, s->st_value, s->st_size);
+             return s;
+@@ -570,6 +576,10 @@ static Elf32_Sym* soinfo_do_lookup(soinfo* si, const char* name, soinfo** lsi, s
+ 
+ done:
+     if (s != NULL) {
++        //__libc_format_log(5, "PRASLINKER", "pras: si %s sym %s s->st_value = 0x%08x, "
++        //           "found in %s, base = 0x%08x, load bias = 0x%08x",
++        //           si->name, name, s->st_value,
++        //           (*lsi)->name, (*lsi)->base, (*lsi)->load_bias);
+         TRACE_TYPE(LOOKUP, "si %s sym %s s->st_value = 0x%08x, "
+                    "found in %s, base = 0x%08x, load bias = 0x%08x",
+                    si->name, name, s->st_value,
+@@ -616,6 +626,8 @@ Elf32_Sym* dlsym_linear_lookup(const char* name, soinfo** found, soinfo* start)
+   }
+ 
+   if (s != NULL) {
++    //__libc_format_log(5, "PRASLINKER", "pras: %s s->st_value = 0x%08x, found->base = 0x%08x",
++    //           name, s->st_value, (*found)->base);
+     TRACE_TYPE(LOOKUP, "%s s->st_value = 0x%08x, found->base = 0x%08x",
+                name, s->st_value, (*found)->base);
+   }
+@@ -681,6 +693,7 @@ static int open_library_on_path(const char* name, const char* const paths[]) {
+ 
+ static int open_library(const char* name) {
+   TRACE("[ opening %s ]", name);
++  __libc_format_log(5, "PRASLINKER", "pras: [ opening %s ]", name);
+ 
+   // If the name contains a slash, we should attempt to open it directly and not search the paths.
+   if (strchr(name, '/') != NULL) {
+@@ -763,6 +776,7 @@ static soinfo* find_library_internal(const char* name) {
+   }
+ 
+   TRACE("[ '%s' has not been loaded yet.  Locating...]", name);
++  //__libc_format_log(5, "PRASLINKER", "pras: [ '%s' has not been loaded yet.  Locating...]", name);
+   si = load_library(name);
+   if (si == NULL) {
+     return NULL;
+@@ -770,6 +784,8 @@ static soinfo* find_library_internal(const char* name) {
+ 
+   // At this point we know that whatever is loaded @ base is a valid ELF
+   // shared library whose segments are properly mapped in.
++  __libc_format_log(5, "PRASLINKER", "pras: [ init_library base=0x%08x sz=0x%08x name='%s', %x ]",
++        si->base, si->size, si->name, (uint32_t)si->load_bias);//pras changed
+   TRACE("[ init_library base=0x%08x sz=0x%08x name='%s' ]",
+         si->base, si->size, si->name);
+ 
+@@ -793,12 +809,14 @@ static soinfo* find_library(const char* name) {
+ static int soinfo_unload(soinfo* si) {
+   if (si->ref_count == 1) {
+     TRACE("unloading '%s'", si->name);
++    //__libc_format_log(5, "PRASLINKER", "pras: unloading '%s'", si->name);
+     si->CallDestructors();
+ 
+     for (Elf32_Dyn* d = si->dynamic; d->d_tag != DT_NULL; ++d) {
+       if (d->d_tag == DT_NEEDED) {
+         const char* library_name = si->strtab + d->d_un.d_val;
+         TRACE("%s needs to unload %s", si->name, library_name);
++      //  __libc_format_log(5, "PRASLINKER", "pras: %s needs to unload %s", si->name, library_name);
+         soinfo_unload(find_loaded_library(library_name));
+       }
+     }
+@@ -810,6 +828,7 @@ static int soinfo_unload(soinfo* si) {
+   } else {
+     si->ref_count--;
+     TRACE("not unloading '%s', decrementing ref_count to %d", si->name, si->ref_count);
++    //__libc_format_log(5, "PRASLINKER", "pras: not unloading '%s', decrementing ref_count to %d", si->name, si->ref_count);
+   }
+   return 0;
+ }
+@@ -949,23 +968,28 @@ static int soinfo_relocate(soinfo* si, Elf32_Rel* rel, unsigned count,
+             count_relocation(kRelocAbsolute);
+             MARK(rel->r_offset);
+             TRACE_TYPE(RELO, "RELO JMP_SLOT %08x <- %08x %s", reloc, sym_addr, sym_name);
++//            __libc_format_log(5, "PRASLINKER", "pras: RELO JMP_SLOT %08x <- %08x %s", reloc, sym_addr, sym_name);
+             *reinterpret_cast<Elf32_Addr*>(reloc) = sym_addr;
+             break;
+         case R_ARM_GLOB_DAT:
+             count_relocation(kRelocAbsolute);
+             MARK(rel->r_offset);
+             TRACE_TYPE(RELO, "RELO GLOB_DAT %08x <- %08x %s", reloc, sym_addr, sym_name);
++  //          __libc_format_log(5, "PRASLINKER", "pras: RELO GLOB_DAT %08x <- %08x %s", reloc, sym_addr, sym_name);
+             *reinterpret_cast<Elf32_Addr*>(reloc) = sym_addr;
+             break;
+         case R_ARM_ABS32:
+             count_relocation(kRelocAbsolute);
+             MARK(rel->r_offset);
+             TRACE_TYPE(RELO, "RELO ABS %08x <- %08x %s", reloc, sym_addr, sym_name);
++ //           __libc_format_log(5, "PRASLINKER", "pras: RELO ABS %08x <- %08x %s", reloc, sym_addr, sym_name);
+             *reinterpret_cast<Elf32_Addr*>(reloc) += sym_addr;
+             break;
+         case R_ARM_REL32:
+             count_relocation(kRelocRelative);
+             MARK(rel->r_offset);
++   //         __libc_format_log(5, "PRASLINKER", "pras: RELO REL32 %08x <- %08x - %08x %s",
++     //                  reloc, sym_addr, rel->r_offset, sym_name);
+             TRACE_TYPE(RELO, "RELO REL32 %08x <- %08x - %08x %s",
+                        reloc, sym_addr, rel->r_offset, sym_name);
+             *reinterpret_cast<Elf32_Addr*>(reloc) += sym_addr - rel->r_offset;
+@@ -975,18 +999,22 @@ static int soinfo_relocate(soinfo* si, Elf32_Rel* rel, unsigned count,
+             count_relocation(kRelocAbsolute);
+             MARK(rel->r_offset);
+             TRACE_TYPE(RELO, "RELO JMP_SLOT %08x <- %08x %s", reloc, sym_addr, sym_name);
++          //  __libc_format_log(5, "PRASLINKER", "pras: RELO JMP_SLOT %08x <- %08x %s", reloc, sym_addr, sym_name);
+             *reinterpret_cast<Elf32_Addr*>(reloc) = sym_addr;
+             break;
+         case R_386_GLOB_DAT:
+             count_relocation(kRelocAbsolute);
+             MARK(rel->r_offset);
+             TRACE_TYPE(RELO, "RELO GLOB_DAT %08x <- %08x %s", reloc, sym_addr, sym_name);
++            //__libc_format_log(5, "PRASLINKER", "pras: RELO GLOB_DAT %08x <- %08x %s", reloc, sym_addr, sym_name);
+             *reinterpret_cast<Elf32_Addr*>(reloc) = sym_addr;
+             break;
+ #elif defined(ANDROID_MIPS_LINKER)
+     case R_MIPS_REL32:
+             count_relocation(kRelocAbsolute);
+             MARK(rel->r_offset);
++            //__libc_format_log(5, "PRASLINKER", "pras: RELO REL32 %08x <- %08x %s",
++              //         reloc, sym_addr, (sym_name) ? sym_name : "*SECTIONHDR*");
+             TRACE_TYPE(RELO, "RELO REL32 %08x <- %08x %s",
+                        reloc, sym_addr, (sym_name) ? sym_name : "*SECTIONHDR*");
+             if (s) {
+@@ -1009,6 +1037,7 @@ static int soinfo_relocate(soinfo* si, Elf32_Rel* rel, unsigned count,
+                 return -1;
+             }
+             TRACE_TYPE(RELO, "RELO RELATIVE %08x <- +%08x", reloc, si->base);
++            //__libc_format_log(5, "PRASLINKER", "pras: RELO RELATIVE %08x <- +%08x", reloc, si->base);
+             *reinterpret_cast<Elf32_Addr*>(reloc) += si->base;
+             break;
+ 
+@@ -1018,12 +1047,15 @@ static int soinfo_relocate(soinfo* si, Elf32_Rel* rel, unsigned count,
+             MARK(rel->r_offset);
+ 
+             TRACE_TYPE(RELO, "RELO R_386_32 %08x <- +%08x %s", reloc, sym_addr, sym_name);
++            //__libc_format_log(5, "PRASLINKER", "pras: RELO R_386_32 %08x <- +%08x %s", reloc, sym_addr, sym_name);
+             *reinterpret_cast<Elf32_Addr*>(reloc) += sym_addr;
+             break;
+ 
+         case R_386_PC32:
+             count_relocation(kRelocRelative);
+             MARK(rel->r_offset);
++           // __libc_format_log(5, "PRASLINKER", "pras: RELO R_386_PC32 %08x <- +%08x (%08x - %08x) %s",
++             //          reloc, (sym_addr - reloc), sym_addr, reloc, sym_name);
+             TRACE_TYPE(RELO, "RELO R_386_PC32 %08x <- +%08x (%08x - %08x) %s",
+                        reloc, (sym_addr - reloc), sym_addr, reloc, sym_name);
+             *reinterpret_cast<Elf32_Addr*>(reloc) += (sym_addr - reloc);
+@@ -1050,6 +1082,7 @@ static int soinfo_relocate(soinfo* si, Elf32_Rel* rel, unsigned count,
+             count_relocation(kRelocCopy);
+             MARK(rel->r_offset);
+             TRACE_TYPE(RELO, "RELO %08x <- %d @ %08x %s", reloc, s->st_size, sym_addr, sym_name);
++            __libc_format_log(5, "PRASLINKER", "pras: RELO %08x <- %d @ %08x %s", reloc, s->st_size, sym_addr, sym_name);
+             if (reloc == sym_addr) {
+                 Elf32_Sym *src = soinfo_do_lookup(NULL, sym_name, &lsi, needed);
+ 
+@@ -1156,6 +1189,7 @@ void soinfo::CallArray(const char* array_name UNUSED, linker_function_t* functio
+   }
+ 
+   TRACE("[ Calling %s (size %d) @ %p for '%s' ]", array_name, count, functions, name);
++  __libc_format_log(5, "PRASLINKER", "pras: [ Calling %s (size %d) @ %p for '%s' ]", array_name, count, functions, name);
+ 
+   int begin = reverse ? (count - 1) : 0;
+   int end = reverse ? -1 : count;
+@@ -1163,10 +1197,12 @@ void soinfo::CallArray(const char* array_name UNUSED, linker_function_t* functio
+ 
+   for (int i = begin; i != end; i += step) {
+     TRACE("[ %s[%d] == %p ]", array_name, i, functions[i]);
++    __libc_format_log(5, "PRASLINKER", "pras: [ %s[%d] == %p ]", array_name, i, functions[i]);
+     CallFunction("function", functions[i]);
+   }
+ 
+   TRACE("[ Done calling %s for '%s' ]", array_name, name);
++  //__libc_format_log(5, "PRASLINKER", "pras: [ Done calling %s for '%s' ]", array_name, name);
+ }
+ 
+ void soinfo::CallFunction(const char* function_name UNUSED, linker_function_t function) {
+@@ -1175,8 +1211,10 @@ void soinfo::CallFunction(const char* function_name UNUSED, linker_function_t fu
+   }
+ 
+   TRACE("[ Calling %s @ %p for '%s' ]", function_name, function, name);
++  __libc_format_log(5, "PRASLINKER", "pras: [ Calling %s @ %p for '%s' ]", function_name, function, name);
+   function();
+   TRACE("[ Done calling %s @ %p for '%s' ]", function_name, function, name);
++  //__libc_format_log(5, "PRASLINKER", "pras: [ Done calling %s @ %p for '%s' ]", function_name, function, name);
+ 
+   // The function may have called dlopen(3) or dlclose(3), so we need to ensure our data structures
+   // are still writable. This happens with our debug malloc (see http://b/7941716).
+@@ -1217,12 +1255,14 @@ void soinfo::CallConstructors() {
+       if (d->d_tag == DT_NEEDED) {
+         const char* library_name = strtab + d->d_un.d_val;
+         TRACE("\"%s\": calling constructors in DT_NEEDED \"%s\"", name, library_name);
++ //       __libc_format_log(5, "PRASLINKER", "pras: \"%s\": calling constructors in DT_NEEDED \"%s\"", name, library_name);
+         find_loaded_library(library_name)->CallConstructors();
+       }
+     }
+   }
+ 
+   TRACE("\"%s\": calling constructors", name);
++//  __libc_format_log(5, "PRASLINKER", "pras: \"%s\": calling constructors", name);
+ 
+   // DT_INIT should be called before DT_INIT_ARRAY if both are present.
+   CallFunction("DT_INIT", init_func);
+@@ -1231,6 +1271,7 @@ void soinfo::CallConstructors() {
+ 
+ void soinfo::CallDestructors() {
+   TRACE("\"%s\": calling destructors", name);
++//  __libc_format_log(5, "PRASLINKER", "pras: \"%s\": calling destructors", name);
+ 
+   // DT_FINI_ARRAY must be parsed in reverse order.
+   CallArray("DT_FINI_ARRAY", fini_array, fini_array_count, true);
+@@ -1785,6 +1826,7 @@ static Elf32_Addr __linker_init_post_relocation(KernelArgumentBlock& args, Elf32
+ #endif
+ 
+     TRACE("[ Ready to execute '%s' @ 0x%08x ]", si->name, si->entry);
++    __libc_format_log(5, "PRASLINKER", "pras: [ Ready to execute '%s' @ 0x%08x ]", si->name, si->entry);
+     return si->entry;
+ }
+ 
+
+project build/
+diff --git a/core/config.mk b/core/config.mk
+index 96993c0..bf8823f 100644
+--- a/core/config.mk
++++ b/core/config.mk
+@@ -97,7 +97,7 @@ SHOW_COMMANDS:= $(filter showcommands,$(MAKECMDGOALS))
+ # ###############################################################
+ 
+ # These can be changed to modify both host and device modules.
+-COMMON_GLOBAL_CFLAGS:= -DANDROID -fmessage-length=0 -W -Wall -Wno-unused -Winit-self -Wpointer-arith
++COMMON_GLOBAL_CFLAGS:= -DANDROID -fmessage-length=0 -W -Wall -Wno-unused -Winit-self -Wpointer-arith #-m32
+ COMMON_RELEASE_CFLAGS:= -DNDEBUG -UDEBUG
+ 
+ COMMON_GLOBAL_CPPFLAGS:= $(COMMON_GLOBAL_CFLAGS) -Wsign-promo
+
+project dalvik/
+diff --git a/vm/Debugger.cpp b/vm/Debugger.cpp
+index 5c44f93..a24413b 100644
+--- a/vm/Debugger.cpp
++++ b/vm/Debugger.cpp
+@@ -2206,8 +2206,8 @@ static Object* getThisObject(const u4* framePtr)
+         return NULL;
+     }
+ 
+-    LOGVV("  Pulling this object for frame at %p", framePtr);
+-    LOGVV("    Method='%s' native=%d static=%d this=%p",
++    ALOGI("prasd:  Pulling this object for frame at %p", framePtr);
++    ALOGI("prasd:    Method='%s' native=%d static=%d this=%p",
+         method->name, dvmIsNativeMethod(method),
+         dvmIsStaticMethod(method), (Object*) framePtr[argOffset]);
+ 
+@@ -2790,10 +2790,11 @@ void dvmDbgExecuteMethod(DebugInvokeReq* pReq)
+ 
+     assert(sizeof(jvalue) == sizeof(u8));
+ 
+-    IF_ALOGV() {
++    //IF_ALOGV() {
++	if(1){//pras
+         char* desc = dexProtoCopyMethodDescriptor(&meth->prototype);
+-        ALOGV("JDWP invoking method %p/%p %s.%s:%s",
+-            pReq->method, meth, meth->clazz->descriptor, meth->name, desc);
++        ALOGI("pras: JDWP invoking method %p/%p %s.%s:%s, %x",
++            pReq->method, meth, meth->clazz->descriptor, meth->name, desc, (uint32_t)meth->insns);
+         free(desc);
+     }
+ 
+diff --git a/vm/JarFile.cpp b/vm/JarFile.cpp
+index e643a5f..0b7c496 100644
+--- a/vm/JarFile.cpp
++++ b/vm/JarFile.cpp
+@@ -93,6 +93,7 @@ DexCacheStatus dvmDexCacheStatus(const char *fileName)
+     DexCacheStatus result = DEX_CACHE_ERROR;
+     ZipEntry entry;
+ 
++//	ALOGI("pras: mtd: %s = %x", __FUNCTION__, (uint32_t)dvmDexCacheStatus);
+     /* Always treat elements of the bootclasspath as up-to-date.
+      * The fact that interpreted code is running at all means that this
+      * should be true.
+diff --git a/vm/Jni.cpp b/vm/Jni.cpp
+index 0e77fab..333ff6f 100644
+--- a/vm/Jni.cpp
++++ b/vm/Jni.cpp
+@@ -719,7 +719,7 @@ static bool dvmRegisterJNIMethod(ClassObject* clazz, const char* methodName,
+     if (*signature == '!') {
+         fastJni = true;
+         ++signature;
+-        ALOGV("fast JNI method %s.%s:%s detected", clazz->descriptor, methodName, signature);
++        //pras: ALOGI("pras: fast JNI method %s.%s:%s detected", clazz->descriptor, methodName, signature);
+     }
+ 
+     Method* method = dvmFindDirectMethodByDescriptor(clazz, methodName, signature);
+@@ -765,7 +765,7 @@ static bool dvmRegisterJNIMethod(ClassObject* clazz, const char* methodName,
+     method->fastJni = fastJni;
+     dvmUseJNIBridge(method, fnPtr);
+ 
+-    ALOGV("JNI-registered %s.%s:%s", clazz->descriptor, methodName, signature);
++    //ALOGI("pras: JNI-registered %s.%s:%s %x\n", clazz->descriptor, methodName, signature, (uint32_t)fnPtr);
+     return true;
+ }
+ 
+@@ -1098,8 +1098,8 @@ void dvmCallJNIMethod(const u4* args, JValue* pResult, const Method* method, Thr
+     u4 accessFlags = method->accessFlags;
+     bool isSynchronized = (accessFlags & ACC_SYNCHRONIZED) != 0;
+ 
+-    //ALOGI("JNI calling %p (%s.%s:%s):", method->insns,
+-    //    method->clazz->descriptor, method->name, method->shorty);
++    ALOGI("PRASb: JNI calling %p (%s.%s:%s): %x", method->insns,
++        method->clazz->descriptor, method->name, method->shorty, (uint32_t)method->nativeFunc);
+ 
+     /*
+      * Walk the argument list, creating local references for appropriate
+@@ -2463,8 +2463,8 @@ static jint RegisterNatives(JNIEnv* env, jclass jclazz,
+ 
+     ClassObject* clazz = (ClassObject*) dvmDecodeIndirectRef(ts.self(), jclazz);
+ 
+-    if (gDvm.verboseJni) {
+-        ALOGI("[Registering JNI native methods for class %s]",
++    if (gDvm.verboseJni || 1) {//pras
++        ALOGI("pras: [Registering JNI native methods for class %s]",
+             clazz->descriptor);
+     }
+ 
+@@ -2474,6 +2474,9 @@ static jint RegisterNatives(JNIEnv* env, jclass jclazz,
+         {
+             return JNI_ERR;
+         }
++		if(1 || gDvm.verboseJni){//pras
++			ALOGI("pras: Method: %s, methodPtr: %x\n", methods[i].name, (uint32_t)(void *)methods[i].fnPtr);
++		}
+     }
+     return JNI_OK;
+ }
+diff --git a/vm/LinearAlloc.cpp b/vm/LinearAlloc.cpp
+index 359893f..39c9608 100644
+--- a/vm/LinearAlloc.cpp
++++ b/vm/LinearAlloc.cpp
+@@ -351,7 +351,7 @@ void* dvmLinearAlloc(Object* classLoader, size_t size)
+         assert(start <= nextOffset);
+         len = (lastWriteOff - firstWriteOff) + SYSTEM_PAGE_SIZE;
+ 
+-        LOGVV("---    calling mprotect(start=%d len=%d RW)", start, len);
++        //ALOGI("---PRASb:    calling mprotect(start=%d len=%d RW)%x", start, len, (uint32_t)mprotect);
+         cc = mprotect(pHdr->mapAddr + start, len, PROT_READ | PROT_WRITE);
+         if (cc != 0) {
+             ALOGE("LinearAlloc mprotect (+%d %d) failed: %s",
+diff --git a/vm/Native.cpp b/vm/Native.cpp
+index a12c4e0..8bdb174 100644
+--- a/vm/Native.cpp
++++ b/vm/Native.cpp
+@@ -90,10 +90,13 @@ void dvmResolveNativeMethod(const u4* args, JValue* pResult,
+     DalvikNativeFunc infunc = dvmLookupInternalNativeMethod(method);
+     if (infunc != NULL) {
+         /* resolution always gets the same answer, so no race here */
+-        IF_LOGVV() {
++        //IF_LOGVV() {
++		if(1){
+             char* desc = dexProtoCopyMethodDescriptor(&method->prototype);
+-            LOGVV("+++ resolved native %s.%s %s, invoking",
+-                clazz->descriptor, method->name, desc);
++            ALOGV("+++ pras :resolved native %s.%s %s, invoking %x",
++                clazz->descriptor, method->name, desc, (uint32_t)infunc);
++            printf("+++ pras :resolved native %s.%s %s, invoking %x\n",
++                clazz->descriptor, method->name, desc, (uint32_t)infunc);
+             free(desc);
+         }
+         if (dvmIsSynchronizedMethod(method)) {
+@@ -112,6 +115,8 @@ void dvmResolveNativeMethod(const u4* args, JValue* pResult,
+     if (func != NULL) {
+         /* found it, point it at the JNI bridge and then call it */
+         dvmUseJNIBridge((Method*) method, func);
++		ALOGV("pras: invoking a bridge: %s: %p\n", method->name, method);
++		printf("pras: invoking a bridge: %s: %p\n", method->name, method);
+         (*method->nativeFunc)(args, pResult, method, self);
+         return;
+     }
+@@ -734,10 +739,10 @@ static int findMethodInLib(void* vlib, void* vmethod)
+         ALOGV("+++ calling dlsym(%s)", mangleCMSig);
+         func = dlsym(pLib->handle, mangleCMSig);
+         if (func != NULL) {
+-            ALOGV("Found '%s' with dlsym", mangleCMSig);
++            ALOGI("Prasb: Found '%s' with dlsym %x", mangleCMSig, (uint32_t)func);
+         }
+     } else {
+-        ALOGV("Found '%s' with dlsym", mangleCM);
++        ALOGI("Prasb: Found '%s' with dlsym %x", mangleCM, (uint32_t)func);
+     }
+ 
+ bail:
+diff --git a/vm/Sync.cpp b/vm/Sync.cpp
+index f42004c..1efe16c 100644
+--- a/vm/Sync.cpp
++++ b/vm/Sync.cpp
+@@ -904,7 +904,7 @@ retry:
+                 goto retry;
+             }
+         } else {
+-            ALOGV("(%d) spin on lock %p: %#x (%#x) %#x",
++            ALOGI("prasd: (%d) spin on lock %p: %#x (%#x) %#x",
+                  threadId, &obj->lock, 0, *thinp, thin);
+             /*
+              * The lock is owned by another thread.  Notify the VM
+@@ -966,13 +966,13 @@ retry:
+                      * Let the VM know we are no longer waiting and
+                      * try again.
+                      */
+-                    ALOGV("(%d) lock %p surprise-fattened",
++                    ALOGI("prasd: (%d) lock %p surprise-fattened",
+                              threadId, &obj->lock);
+                     dvmChangeStatus(self, oldStatus);
+                     goto retry;
+                 }
+             }
+-            ALOGV("(%d) spin on lock done %p: %#x (%#x) %#x",
++            ALOGI("prasd: (%d) spin on lock done %p: %#x (%#x) %#x",
+                  threadId, &obj->lock, 0, *thinp, thin);
+             /*
+              * We have acquired the thin lock.  Let the VM know that
+@@ -983,7 +983,7 @@ retry:
+              * Fatten the lock.
+              */
+             inflateMonitor(self, obj);
+-            ALOGV("(%d) lock %p fattened", threadId, &obj->lock);
++            ALOGI("prasd: (%d) lock %p fattened", threadId, &obj->lock);
+         }
+     } else {
+         /*
+@@ -1086,7 +1086,7 @@ void dvmObjectWait(Thread* self, Object *obj, s8 msec, s4 nsec,
+          * any other thread gets a chance.
+          */
+         inflateMonitor(self, obj);
+-        ALOGV("(%d) lock %p fattened by wait()", self->threadId, &obj->lock);
++        ALOGI("prasd: (%d) lock %p fattened by wait()", self->threadId, &obj->lock);
+     }
+     mon = LW_MONITOR(obj->lock);
+     waitMonitor(self, mon, msec, nsec, interruptShouldThrow);
+diff --git a/vm/Thread.cpp b/vm/Thread.cpp
+index 1ebfca7..4f86491 100644
+--- a/vm/Thread.cpp
++++ b/vm/Thread.cpp
+@@ -1537,7 +1537,7 @@ static void* interpThreadStart(void* arg)
+     Method* run = self->threadObj->clazz->vtable[gDvm.voffJavaLangThread_run];
+     JValue unused;
+ 
+-    ALOGV("threadid=%d: calling run()", self->threadId);
++    ALOGI("pras: threadid=%d: calling run(), invoking %x, %x", self->threadId, (uint32_t)run->insns, (uint32_t)run->nativeFunc);
+     assert(strcmp(run->name, "run") == 0);
+     dvmCallMethod(self, run, self->threadObj, &unused);
+     ALOGV("threadid=%d: exiting", self->threadId);
+@@ -1570,7 +1570,7 @@ static void threadExitUncaughtException(Thread* self, Object* group)
+     Object* handlerObj;
+     Method* uncaughtHandler;
+ 
+-    ALOGW("threadid=%d: thread exiting with uncaught exception (group=%p)",
++    ALOGI("pras: threadid=%d: thread exiting with uncaught exception (group=%p)",
+         self->threadId, group);
+     assert(group != NULL);
+ 
+@@ -1602,8 +1602,8 @@ static void threadExitUncaughtException(Thread* self, Object* group)
+             "uncaughtException", "(Ljava/lang/Thread;Ljava/lang/Throwable;)V");
+ 
+     if (uncaughtHandler != NULL) {
+-        //ALOGI("+++ calling %s.uncaughtException",
+-        //     handlerObj->clazz->descriptor);
++        ALOGI("+++PRASb: calling %s.uncaughtException %x ",
++             handlerObj->clazz->descriptor, (uint32_t)handlerObj);
+         JValue unused;
+         dvmCallMethod(self, uncaughtHandler, handlerObj, &unused,
+             self->threadObj, exception);
+@@ -1739,8 +1739,8 @@ static void* internalThreadStart(void* arg)
+         pthread_cond_broadcast(&gDvm.threadStartCond);
+         dvmUnlockThreadList();
+ 
+-        LOG_THREAD("threadid=%d: internal '%s'",
+-            dvmThreadSelf()->threadId, pArgs->name);
++        ALOGI("pras: threadid=%d: internal '%s' %x ",
++            dvmThreadSelf()->threadId, pArgs->name, (uint32_t)(*pArgs->func));
+ 
+         /* execute */
+         (*pArgs->func)(pArgs->funcArg);
+diff --git a/vm/alloc/Copying.cpp b/vm/alloc/Copying.cpp
+index 77cdac3..772b5c3 100644
+--- a/vm/alloc/Copying.cpp
++++ b/vm/alloc/Copying.cpp
+@@ -122,7 +122,7 @@
+ 
+ #define ARRAYSIZE(x) (sizeof(x) / sizeof(x[0]))
+ 
+-#if 0
++#if 1
+ #define LOG_ALLOC ALOGI
+ #define LOG_PIN ALOGI
+ #define LOG_PROM ALOGI
+diff --git a/vm/alloc/Heap.cpp b/vm/alloc/Heap.cpp
+index 2de20ef..5451158 100644
+--- a/vm/alloc/Heap.cpp
++++ b/vm/alloc/Heap.cpp
+@@ -104,7 +104,7 @@ bool dvmHeapStartup()
+     gcHeap->clearedReferences = NULL;
+ 
+     if (!dvmCardTableStartup(gDvm.heapMaximumSize, gDvm.heapGrowthLimit)) {
+-        LOGE_HEAP("card table startup failed.");
++        //pras:E_HEAP("card table startup failed.");
+         return false;
+     }
+ 
+@@ -233,9 +233,9 @@ static void *tryMalloc(size_t size)
+ //TODO: may want to grow a little bit more so that the amount of free
+ //      space is equal to the old free space + the utilization slop for
+ //      the new allocation.
+-        LOGI_HEAP("Grow heap (frag case) to "
+-                "%zu.%03zuMB for %zu-byte allocation",
+-                FRACTIONAL_MB(newHeapSize), size);
++        //pras:I_HEAP("Grow heap (frag case) to "
++         //       "%zu.%03zuMB for %zu-byte allocation",
++          //      FRACTIONAL_MB(newHeapSize), size);
+         return ptr;
+     }
+ 
+@@ -246,8 +246,8 @@ static void *tryMalloc(size_t size)
+      * been collected and cleared before throwing an OOME.
+      */
+ //TODO: wait for the finalizers from the previous GC to finish
+-    LOGI_HEAP("Forcing collection of SoftReferences for %zu-byte allocation",
+-            size);
++    //pras LOGI_HEAP("Forcing collection of SoftReferences for %zu-byte allocation",
++     //       size);
+     gcForMalloc(true);
+     ptr = dvmHeapSourceAllocAndGrow(size);
+     if (ptr != NULL) {
+@@ -255,7 +255,7 @@ static void *tryMalloc(size_t size)
+     }
+ //TODO: maybe wait for finalizers and try one last time
+ 
+-    LOGE_HEAP("Out of memory on a %zd-byte allocation.", size);
++   //pras:  LOGE_HEAP("Out of memory on a %zd-byte allocation.", size);
+ //TODO: tell the HeapSource to dump its state
+     dvmDumpThread(dvmThreadSelf(), false);
+ 
+@@ -458,7 +458,7 @@ void dvmCollectGarbageInternal(const GcSpec* spec)
+      */
+ 
+     if (gcHeap->gcRunning) {
+-        LOGW_HEAP("Attempted recursive GC");
++        //pras LOGW_HEAP("Attempted recursive GC");
+         return;
+     }
+ 
+@@ -489,7 +489,7 @@ void dvmCollectGarbageInternal(const GcSpec* spec)
+         oldThreadPriority = os_raiseThreadPriority();
+     }
+     if (gDvm.preVerify) {
+-        LOGV_HEAP("Verifying roots and heap before GC");
++        //pras LOGV_HEAP("Verifying roots and heap before GC");
+         verifyRootsAndHeap();
+     }
+ 
+@@ -500,13 +500,13 @@ void dvmCollectGarbageInternal(const GcSpec* spec)
+     if (!dvmHeapBeginMarkStep(spec->isPartial)) {
+         ATRACE_END(); // Suspend A
+         ATRACE_END(); // Top-level GC
+-        LOGE_HEAP("dvmHeapBeginMarkStep failed; aborting");
++        //pras LOGE_HEAP("dvmHeapBeginMarkStep failed; aborting");
+         dvmAbort();
+     }
+ 
+     /* Mark the set of objects that are strongly reachable from the roots.
+      */
+-    LOGD_HEAP("Marking...");
++    //pras LOGD_HEAP("Marking...");
+     dvmHeapMarkRootSet();
+ 
+     /* dvmHeapScanMarkedObjects() will build the lists of known
+@@ -534,7 +534,7 @@ void dvmCollectGarbageInternal(const GcSpec* spec)
+      * If we're not collecting soft references, soft-reachable
+      * objects will also be marked.
+      */
+-    LOGD_HEAP("Recursing...");
++    //pras LOGD_HEAP("Recursing...");
+     dvmHeapScanMarkedObjects();
+ 
+     if (spec->isConcurrent) {
+@@ -587,7 +587,7 @@ void dvmCollectGarbageInternal(const GcSpec* spec)
+     dvmCompilerPerformSafePointChecks();
+ #endif
+ 
+-    LOGD_HEAP("Sweeping...");
++    //pras LOGD_HEAP("Sweeping...");
+ 
+     dvmHeapSweepSystemWeaks();
+ 
+@@ -599,7 +599,7 @@ void dvmCollectGarbageInternal(const GcSpec* spec)
+     dvmHeapSourceSwapBitmaps();
+ 
+     if (gDvm.postVerify) {
+-        LOGV_HEAP("Verifying roots and heap after GC");
++       //pras  LOGV_HEAP("Verifying roots and heap after GC");
+         verifyRootsAndHeap();
+     }
+ 
+@@ -611,13 +611,13 @@ void dvmCollectGarbageInternal(const GcSpec* spec)
+     }
+     dvmHeapSweepUnmarkedObjects(spec->isPartial, spec->isConcurrent,
+                                 &numObjectsFreed, &numBytesFreed);
+-    LOGD_HEAP("Cleaning up...");
++    //pras LOGD_HEAP("Cleaning up...");
+     dvmHeapFinishMarkStep();
+     if (spec->isConcurrent) {
+         dvmLockHeap();
+     }
+ 
+-    LOGD_HEAP("Done.");
++    //pras LOGD_HEAP("Done.");
+ 
+     /* Now's a good time to adjust the heap size, since
+      * we know what our utilization is.
+@@ -631,11 +631,11 @@ void dvmCollectGarbageInternal(const GcSpec* spec)
+     currFootprint = dvmHeapSourceGetValue(HS_FOOTPRINT, NULL, 0);
+ 
+     dvmMethodTraceGCEnd();
+-    LOGV_HEAP("GC finished");
++    //pras LOGV_HEAP("GC finished");
+ 
+     gcHeap->gcRunning = false;
+ 
+-    LOGV_HEAP("Resuming threads");
++    //pras LOGV_HEAP("Resuming threads");
+ 
+     if (spec->isConcurrent) {
+         /*
+@@ -666,39 +666,39 @@ void dvmCollectGarbageInternal(const GcSpec* spec)
+     gcEnd = dvmGetRelativeTimeMsec();
+     percentFree = 100 - (size_t)(100.0f * (float)currAllocated / currFootprint);
+     if (!spec->isConcurrent) {
+-        u4 markSweepTime = dirtyEnd - rootStart;
+-        u4 gcTime = gcEnd - rootStart;
+-        bool isSmall = numBytesFreed > 0 && numBytesFreed < 1024;
+-        ALOGD("%s freed %s%zdK, %d%% free %zdK/%zdK, paused %ums, total %ums",
+-             spec->reason,
+-             isSmall ? "<" : "",
+-             numBytesFreed ? MAX(numBytesFreed / 1024, 1) : 0,
+-             percentFree,
+-             currAllocated / 1024, currFootprint / 1024,
+-             markSweepTime, gcTime);
++        //pras u4 markSweepTime = dirtyEnd - rootStart;
++        //pras u4 gcTime = gcEnd - rootStart;
++        //pras bool isSmall = numBytesFreed > 0 && numBytesFreed < 1024;
++        //pras ALOGD("%s freed %s%zdK, %d%% free %zdK/%zdK, paused %ums, total %ums",
++        //     spec->reason,
++        //     isSmall ? "<" : "",
++        //     numBytesFreed ? MAX(numBytesFreed / 1024, 1) : 0,
++        //     percentFree,
++        //     currAllocated / 1024, currFootprint / 1024,
++        //     markSweepTime, gcTime);
+     } else {
+-        u4 rootTime = rootEnd - rootStart;
+-        u4 dirtyTime = dirtyEnd - dirtyStart;
+-        u4 gcTime = gcEnd - rootStart;
+-        bool isSmall = numBytesFreed > 0 && numBytesFreed < 1024;
+-        ALOGD("%s freed %s%zdK, %d%% free %zdK/%zdK, paused %ums+%ums, total %ums",
+-             spec->reason,
+-             isSmall ? "<" : "",
+-             numBytesFreed ? MAX(numBytesFreed / 1024, 1) : 0,
+-             percentFree,
+-             currAllocated / 1024, currFootprint / 1024,
+-             rootTime, dirtyTime, gcTime);
++        //pras u4 rootTime = rootEnd - rootStart;
++        //pras u4 dirtyTime = dirtyEnd - dirtyStart;
++        //pras u4 gcTime = gcEnd - rootStart;
++        //pras bool isSmall = numBytesFreed > 0 && numBytesFreed < 1024;
++        //pras ALOGD("%s freed %s%zdK, %d%% free %zdK/%zdK, paused %ums+%ums, total %ums",
++        //pras      spec->reason,
++        //pras      isSmall ? "<" : "",
++        //pras      numBytesFreed ? MAX(numBytesFreed / 1024, 1) : 0,
++        //pras      percentFree,
++        //pras      currAllocated / 1024, currFootprint / 1024,
++        //pras      rootTime, dirtyTime, gcTime);
+     }
+     if (gcHeap->ddmHpifWhen != 0) {
+-        LOGD_HEAP("Sending VM heap info to DDM");
++        //pras LOGD_HEAP("Sending VM heap info to DDM");
+         dvmDdmSendHeapInfo(gcHeap->ddmHpifWhen, false);
+     }
+     if (gcHeap->ddmHpsgWhen != 0) {
+-        LOGD_HEAP("Dumping VM heap to DDM");
++        //pras LOGD_HEAP("Dumping VM heap to DDM");
+         dvmDdmSendHeapSegments(false, false);
+     }
+     if (gcHeap->ddmNhsgWhen != 0) {
+-        LOGD_HEAP("Dumping native heap to DDM");
++        //pras LOGD_HEAP("Dumping native heap to DDM");
+         dvmDdmSendHeapSegments(false, true);
+     }
+ 
+@@ -739,7 +739,7 @@ bool dvmWaitForConcurrentGcToComplete()
+     }
+     u4 end = dvmGetRelativeTimeMsec();
+     if (end - start > 0) {
+-        ALOGD("WAIT_FOR_CONCURRENT_GC blocked %ums", end - start);
++        //pras ALOGD("WAIT_FOR_CONCURRENT_GC blocked %ums", end - start);
+     }
+     ATRACE_END();
+     return waited;
+diff --git a/vm/analysis/DexPrepare.cpp b/vm/analysis/DexPrepare.cpp
+index e8112d5..bb715c4 100644
+--- a/vm/analysis/DexPrepare.cpp
++++ b/vm/analysis/DexPrepare.cpp
+@@ -1444,7 +1444,7 @@ static bool writeChunk(int fd, u4 type, const void* data, size_t size)
+ 
+     assert(sizeof(header) == 8);
+ 
+-    ALOGV("Writing chunk, type=%.4s size=%d", (char*) &type, size);
++    ALOGI("Prasc: Writing chunk, type=%.4s size=%d %x", (char*) &type, size, (uint32_t)writeChunk);
+ 
+     header.ts.type = type;
+     header.ts.size = (u4) size;
+diff --git a/vm/compiler/Frontend.cpp b/vm/compiler/Frontend.cpp
+index 47c1898..7e95f79 100644
+--- a/vm/compiler/Frontend.cpp
++++ b/vm/compiler/Frontend.cpp
+@@ -1338,7 +1338,7 @@ bool dvmCompileMethod(const Method *method, JitTranslationInfo *info)
+                       cUnit.assemblerStatus);
+         } while (cUnit.assemblerStatus == kRetryAll);
+ 
+-        if (cUnit.printMe) {
++        if (cUnit.printMe || 1) {//pras
+             dvmCompilerCodegenDump(&cUnit);
+         }
+ 
+@@ -1574,8 +1574,8 @@ static bool compileLoop(CompilationUnit *cUnit, unsigned int startOffset,
+         goto bail;
+     }
+ 
+-    if (cUnit->printMe || gDvmJit.receivedSIGUSR2) {
+-        ALOGD("Loop trace @ offset %04x", cUnit->entryBlock->startOffset);
++    if (1 || cUnit->printMe || gDvmJit.receivedSIGUSR2) {//pras
++        ALOGD("pras: Loop trace @ offset %04x", cUnit->entryBlock->startOffset);
+         dvmCompilerCodegenDump(cUnit);
+     }
+ 
+@@ -2073,10 +2073,21 @@ bool dvmCompileTrace(JitTraceDescription *desc, int numMaxInsts,
+     dvmInsertGrowableList(blockList, (intptr_t) curBB);
+     cUnit.puntBlock = curBB;
+ 
+-    if (cUnit.printMe) {
++    //f (cUnit.printMe) {//pras
++	if(1) {
+         char* signature =
+             dexProtoCopyMethodDescriptor(&desc->method->prototype);
+-        ALOGD("TRACEINFO (%d): 0x%08x %s%s.%s %#x %d of %d, %d blocks",
++        printf("pras: TRACEINFO (%d): 0x%08x %s%s.%s %#x %d of %d, %d blocks\n",
++            compilationId,
++            (intptr_t) desc->method->insns,
++            desc->method->clazz->descriptor,
++            desc->method->name,
++            signature,
++            desc->trace[0].info.frag.startOffset,
++            traceSize,
++            dexCode->insnsSize,
++            numBlocks);
++        ALOGD("pras: TRACEINFO (%d): 0x%08x %s%s.%s %#x %d of %d, %d blocks",
+             compilationId,
+             (intptr_t) desc->method->insns,
+             desc->method->clazz->descriptor,
+@@ -2134,10 +2145,10 @@ bool dvmCompileTrace(JitTraceDescription *desc, int numMaxInsts,
+                   cUnit.assemblerStatus);
+     } while (cUnit.assemblerStatus == kRetryAll);
+ 
+-    if (cUnit.printMe) {
+-        ALOGD("Trace Dalvik PC: %p", startCodePtr);
++    if (cUnit.printMe || 1) {//pras
++        ALOGD("pras: Trace Dalvik PC: %p", startCodePtr);
+         dvmCompilerCodegenDump(&cUnit);
+-        ALOGD("End %s%s, %d Dalvik instructions",
++        ALOGD("pras: End %s%s, %d Dalvik instructions",
+              desc->method->clazz->descriptor, desc->method->name,
+              cUnit.numInsts);
+     }
+diff --git a/vm/compiler/Utility.cpp b/vm/compiler/Utility.cpp
+index 2fe94d2..3ebc3f2 100644
+--- a/vm/compiler/Utility.cpp
++++ b/vm/compiler/Utility.cpp
+@@ -157,25 +157,25 @@ intptr_t dvmGrowableListGetElement(const GrowableList *gList, size_t idx)
+ void dvmCompilerDumpCompilationUnit(CompilationUnit *cUnit)
+ {
+     BasicBlock *bb;
+-    const char *blockTypeNames[] = {
+-        "Normal Chaining Cell",
+-        "Hot Chaining Cell",
+-        "Singleton Chaining Cell",
+-        "Predicted Chaining Cell",
+-        "Backward Branch",
+-        "Chaining Cell Gap",
+-        "N/A",
+-        "Entry Block",
+-        "Code Block",
+-        "Exit Block",
+-        "PC Reconstruction",
+-        "Exception Handling",
+-    };
++    //prasconst char *blockTypeNames[] = {
++    //pras    "Normal Chaining Cell",
++    //pras    "Hot Chaining Cell",
++    //pras    "Singleton Chaining Cell",
++    //pras    "Predicted Chaining Cell",
++    //pras    "Backward Branch",
++    //pras    "Chaining Cell Gap",
++    //pras    "N/A",
++    //pras    "Entry Block",
++    //pras    "Code Block",
++    //pras    "Exit Block",
++    //pras    "PC Reconstruction",
++    //pras    "Exception Handling",
++    //pras};
+ 
+     ALOGD("Compiling %s %s", cUnit->method->clazz->descriptor,
+          cUnit->method->name);
+-    ALOGD("%d insns", dvmGetMethodInsnsSize(cUnit->method));
+-    ALOGD("%d blocks in total", cUnit->numBlocks);
++    //pras: ALOGD("%d insns", dvmGetMethodInsnsSize(cUnit->method));
++    //pras: ALOGD("%d blocks in total", cUnit->numBlocks);
+     GrowableListIterator iterator;
+ 
+     dvmGrowableListIteratorInit(&cUnit->blockList, &iterator);
+@@ -183,19 +183,19 @@ void dvmCompilerDumpCompilationUnit(CompilationUnit *cUnit)
+     while (true) {
+         bb = (BasicBlock *) dvmGrowableListIteratorNext(&iterator);
+         if (bb == NULL) break;
+-        ALOGD("Block %d (%s) (insn %04x - %04x%s)",
+-             bb->id,
+-             blockTypeNames[bb->blockType],
+-             bb->startOffset,
+-             bb->lastMIRInsn ? bb->lastMIRInsn->offset : bb->startOffset,
+-             bb->lastMIRInsn ? "" : " empty");
++        //pras: ALOGD("Block %d (%s) (insn %04x - %04x%s)",
++        //     bb->id,
++        //     blockTypeNames[bb->blockType],
++        //     bb->startOffset,
++        //     bb->lastMIRInsn ? bb->lastMIRInsn->offset : bb->startOffset,
++        //     bb->lastMIRInsn ? "" : " empty");
+         if (bb->taken) {
+-            ALOGD("  Taken branch: block %d (%04x)",
+-                 bb->taken->id, bb->taken->startOffset);
++            //pras: ALOGD("  Taken branch: block %d (%04x)",
++            //pras:      bb->taken->id, bb->taken->startOffset);
+         }
+         if (bb->fallThrough) {
+-            ALOGD("  Fallthrough : block %d (%04x)",
+-                 bb->fallThrough->id, bb->fallThrough->startOffset);
++            //pras: ALOGD("  Fallthrough : block %d (%04x)",
++            //pras:      bb->fallThrough->id, bb->fallThrough->startOffset);
+         }
+     }
+ }
+diff --git a/vm/compiler/codegen/arm/ArchUtility.cpp b/vm/compiler/codegen/arm/ArchUtility.cpp
+index 9f87b7f..27f29d7 100644
+--- a/vm/compiler/codegen/arm/ArchUtility.cpp
++++ b/vm/compiler/codegen/arm/ArchUtility.cpp
+@@ -395,11 +395,15 @@ void dvmDumpLIRInsn(LIR *arg, unsigned char *baseAddr)
+ /* Dump instructions and constant pool contents */
+ void dvmCompilerCodegenDump(CompilationUnit *cUnit)
+ {
++    printf("pras: at installed %p\n", cUnit->baseAddr);
++    ALOGD("pras: installed at %p\n", cUnit->baseAddr);
++	if(1 == 1)return;//pras
+     ALOGD("Dumping LIR insns");
+     LIR *lirInsn;
+     ArmLIR *armLIR;
+ 
+     ALOGD("installed code is at %p", cUnit->baseAddr);
++	if(1 == 1)return;//pras
+     ALOGD("total size is %d bytes", cUnit->totalSize);
+     for (lirInsn = cUnit->firstLIRInsn; lirInsn; lirInsn = lirInsn->next) {
+         dvmDumpLIRInsn(lirInsn, (unsigned char *) cUnit->baseAddr);
+diff --git a/vm/compiler/codegen/arm/Assemble.cpp b/vm/compiler/codegen/arm/Assemble.cpp
+index 10572eb..02591ed 100644
+--- a/vm/compiler/codegen/arm/Assemble.cpp
++++ b/vm/compiler/codegen/arm/Assemble.cpp
+@@ -968,15 +968,15 @@ static AssemblerStatus assembleInstructions(CompilationUnit *cUnit,
+                 dvmCompilerAbort(cUnit);
+             }
+             if ((lir->opcode == kThumb2LdrPcRel12) && (delta > 4091)) {
+-                if (cUnit->printMe) {
+-                    ALOGD("kThumb2LdrPcRel12@%x: delta=%d", lir->generic.offset,
++                if (cUnit->printMe || 1) {
++                    ALOGD("pras: kThumb2LdrPcRel12@%x: delta=%d", lir->generic.offset,
+                          delta);
+                     dvmCompilerCodegenDump(cUnit);
+                 }
+                 return kRetryHalve;
+             } else if (delta > 1020) {
+-                if (cUnit->printMe) {
+-                    ALOGD("kThumbLdrPcRel@%x: delta=%d", lir->generic.offset,
++                if (cUnit->printMe || 1) {
++                    ALOGD("pras: kThumbLdrPcRel@%x: delta=%d", lir->generic.offset,
+                          delta);
+                     dvmCompilerCodegenDump(cUnit);
+                 }
+@@ -1011,8 +1011,8 @@ static AssemblerStatus assembleInstructions(CompilationUnit *cUnit,
+                 lir->operands[1] = 0;
+                 lir->generic.target = 0;
+                 dvmCompilerSetupResourceMasks(lir);
+-                if (cUnit->printMe) {
+-                    ALOGD("kThumb2Cbnz/kThumb2Cbz@%x: delta=%d",
++                if (cUnit->printMe || 1) {
++                    ALOGD("pras: kThumb2Cbnz/kThumb2Cbz@%x: delta=%d",
+                          lir->generic.offset, delta);
+                     dvmCompilerCodegenDump(cUnit);
+                 }
+@@ -1027,8 +1027,8 @@ static AssemblerStatus assembleInstructions(CompilationUnit *cUnit,
+             intptr_t target = targetLIR->generic.offset;
+             int delta = target - pc;
+             if ((lir->opcode == kThumbBCond) && (delta > 254 || delta < -256)) {
+-                if (cUnit->printMe) {
+-                    ALOGD("kThumbBCond@%x: delta=%d", lir->generic.offset,
++                if (cUnit->printMe || 1) {
++                    ALOGD("pras: kThumbBCond@%x: delta=%d", lir->generic.offset,
+                          delta);
+                     dvmCompilerCodegenDump(cUnit);
+                 }
+diff --git a/vm/compiler/codegen/arm/CodegenDriver.cpp b/vm/compiler/codegen/arm/CodegenDriver.cpp
+index 44a48f7..00f7697 100644
+--- a/vm/compiler/codegen/arm/CodegenDriver.cpp
++++ b/vm/compiler/codegen/arm/CodegenDriver.cpp
+@@ -4638,6 +4638,8 @@ bool dvmCompilerDoWork(CompilerWorkOrder *work)
+     }
+     if (!success)
+         work->result.codeAddress = NULL;
++	else
++		ALOGI("prasd: codeAddress = %x", (uint32_t)work->result.codeAddress);
+     return isCompile;
+ }
+ 
+diff --git a/vm/interp/Interp.cpp b/vm/interp/Interp.cpp
+index 42e2eca..e93f238 100644
+--- a/vm/interp/Interp.cpp
++++ b/vm/interp/Interp.cpp
+@@ -562,7 +562,7 @@ bool dvmAddSingleStep(Thread* thread, int size, int depth)
+          * frames are only inserted when calling from native->interp, so we
+          * don't need to worry about one being here.
+          */
+-        ALOGV("##### init step while in native method");
++        ALOGI("#####pras: init step while in native method %x", (uint32_t)prevFp);
+         fp = prevFp;
+         assert(!dvmIsBreakFrame((u4*)fp));
+         assert(dvmIsNativeMethod(SAVEAREA_FROM_FP(fp)->method));
+@@ -1278,9 +1278,9 @@ Method* dvmInterpFindInterfaceMethod(ClassObject* thisClass, u4 methodIdx,
+         methodToCall->nativeFunc != NULL);
+ #endif
+ 
+-    LOGVV("+++ interface=%s.%s concrete=%s.%s",
++    ALOGI("pras: +++ interface=%s.%s concrete=%s.%s %x",
+         absMethod->clazz->descriptor, absMethod->name,
+-        methodToCall->clazz->descriptor, methodToCall->name);
++        methodToCall->clazz->descriptor, methodToCall->name, (uint32_t)methodToCall->insns);
+     assert(methodToCall != NULL);
+ 
+     return methodToCall;
+diff --git a/vm/interp/Stack.cpp b/vm/interp/Stack.cpp
+index 1433f13..dcff699 100644
+--- a/vm/interp/Stack.cpp
++++ b/vm/interp/Stack.cpp
+@@ -357,11 +357,17 @@ static ClassObject* callPrep(Thread* self, const Method* method, Object* obj,
+ {
+     ClassObject* clazz;
+ 
++    //pras
++	if (self->status != THREAD_RUNNING) {
++        ALOGI("PRASb: threadid=%d: status=%d on call to %s.%s -%x %x",
++            self->threadId, self->status,
++            method->clazz->descriptor, method->name, (uint32_t)method->nativeFunc, (uint32_t)method->insns);
++    }
+ #ifndef NDEBUG
+     if (self->status != THREAD_RUNNING) {
+-        ALOGW("threadid=%d: status=%d on call to %s.%s -",
++        ALOGI("PRASb: threadid=%d: status=%d on call to %s.%s -%x %x",
+             self->threadId, self->status,
+-            method->clazz->descriptor, method->name);
++            method->clazz->descriptor, method->name, (uint32_t)method->nativeFunc, (uint32_t)method->insns);
+     }
+ #endif
+ 
+@@ -373,10 +379,12 @@ static ClassObject* callPrep(Thread* self, const Method* method, Object* obj,
+     else
+         clazz = method->clazz;
+ 
+-    IF_LOGVV() {
++   // IF_LOGVV() {
++	//pras
++	if(1){
+         char* desc = dexProtoCopyMethodDescriptor(&method->prototype);
+-        LOGVV("thread=%d native code calling %s.%s %s", self->threadId,
+-            clazz->descriptor, method->name, desc);
++        ALOGI("PRAS: thread=%d native code calling %s.%s %s: %x %x", self->threadId,
++            clazz->descriptor, method->name, desc, (uint32_t)method->nativeFunc, (uint32_t)method->insns);
+         free(desc);
+     }
+ 
+diff --git a/vm/mterp/Mterp.cpp b/vm/mterp/Mterp.cpp
+index bfeada2..2c9b568 100644
+--- a/vm/mterp/Mterp.cpp
++++ b/vm/mterp/Mterp.cpp
+@@ -80,10 +80,11 @@ void dvmMterpStd(Thread* self)
+     /* configure mterp items */
+     self->interpSave.methodClassDex = self->interpSave.method->clazz->pDvmDex;
+ 
+-    IF_LOGVV() {
++    //IF_LOGVV() {pras
++	if(1) {
+         char* desc = dexProtoCopyMethodDescriptor(
+                          &self->interpSave.method->prototype);
+-        LOGVV("mterp threadid=%d : %s.%s %s",
++        ALOGI("prasd: mterp threadid=%d : %s.%s %s",
+             dvmThreadSelf()->threadId,
+             self->interpSave.method->clazz->descriptor,
+             self->interpSave.method->name,
+@@ -92,7 +93,7 @@ void dvmMterpStd(Thread* self)
+     }
+     //ALOGI("self is %p, pc=%p, fp=%p", self, self->interpSave.pc,
+     //      self->interpSave.curFrame);
+-    //ALOGI("first instruction is 0x%04x", self->interpSave.pc[0]);
++    ALOGI("pras: first instruction is 0x%08x", (uint32_t)self->interpSave.pc);
+ 
+     /*
+      * Handle any ongoing profiling and prep for debugging
+diff --git a/vm/mterp/c/gotoTargets.cpp b/vm/mterp/c/gotoTargets.cpp
+index 452bee8..2154a94 100644
+--- a/vm/mterp/c/gotoTargets.cpp
++++ b/vm/mterp/c/gotoTargets.cpp
+@@ -920,8 +920,8 @@ GOTO_TARGET(invokeMethod, bool methodCallRange, const Method* _methodToCall,
+                 dvmReportPreNativeInvoke(methodToCall, self, newSaveArea->prevFrame);
+             }
+ 
+-            ILOGD("> native <-- %s.%s %s", methodToCall->clazz->descriptor,
+-                  methodToCall->name, methodToCall->shorty);
++            ALOGI(">PRASb: native <-- %s.%s %s :%x", methodToCall->clazz->descriptor,
++                  methodToCall->name, methodToCall->shorty, (uint32_t)methodToCall->nativeFunc);
+ 
+             /*
+              * Jump through native call bridge.  Because we leave no
+diff --git a/vm/mterp/out/InterpC-allstubs.cpp b/vm/mterp/out/InterpC-allstubs.cpp
+index 1ef8783..cc49994 100644
+--- a/vm/mterp/out/InterpC-allstubs.cpp
++++ b/vm/mterp/out/InterpC-allstubs.cpp
+@@ -4006,8 +4006,8 @@ GOTO_TARGET(invokeMethod, bool methodCallRange, const Method* _methodToCall,
+                 dvmReportPreNativeInvoke(methodToCall, self, newSaveArea->prevFrame);
+             }
+ 
+-            ILOGD("> native <-- %s.%s %s", methodToCall->clazz->descriptor,
+-                  methodToCall->name, methodToCall->shorty);
++            ALOGI(">PRASb: native <-- %s.%s %s :%x", methodToCall->clazz->descriptor,
++                  methodToCall->name, methodToCall->shorty, (uint32_t)methodToCall->nativeFunc);
+ 
+             /*
+              * Jump through native call bridge.  Because we leave no
+diff --git a/vm/mterp/out/InterpC-portable.cpp b/vm/mterp/out/InterpC-portable.cpp
+index 0328aa8..9d0bd75 100644
+--- a/vm/mterp/out/InterpC-portable.cpp
++++ b/vm/mterp/out/InterpC-portable.cpp
+@@ -3954,8 +3954,8 @@ GOTO_TARGET(invokeMethod, bool methodCallRange, const Method* _methodToCall,
+                 dvmReportPreNativeInvoke(methodToCall, self, newSaveArea->prevFrame);
+             }
+ 
+-            ILOGD("> native <-- %s.%s %s", methodToCall->clazz->descriptor,
+-                  methodToCall->name, methodToCall->shorty);
++            ALOGI(">PRASb: native <-- %s.%s %s :%x", methodToCall->clazz->descriptor,
++                  methodToCall->name, methodToCall->shorty, (uint32_t)(methodToCall->nativeFunc));
+ 
+             /*
+              * Jump through native call bridge.  Because we leave no
+diff --git a/vm/mterp/portable/entry.cpp b/vm/mterp/portable/entry.cpp
+index f8c01eb..aeb16d8 100644
+--- a/vm/mterp/portable/entry.cpp
++++ b/vm/mterp/portable/entry.cpp
+@@ -34,9 +34,9 @@ void dvmInterpretPortable(Thread* self)
+ 
+     methodClassDex = curMethod->clazz->pDvmDex;
+ 
+-    LOGVV("threadid=%d: %s.%s pc=%#x fp=%p",
++    LOGI("prasd: threadid=%d: %s.%s pc=%#x fp=%p %x",
+         self->threadId, curMethod->clazz->descriptor, curMethod->name,
+-        pc - curMethod->insns, fp);
++        pc - curMethod->insns, fp, pc);
+ 
+     /*
+      * Handle any ongoing profiling and prep for debugging.
+diff --git a/vm/native/InternalNative.cpp b/vm/native/InternalNative.cpp
+index 0d06ea7..2ff01ca 100644
+--- a/vm/native/InternalNative.cpp
++++ b/vm/native/InternalNative.cpp
+@@ -118,7 +118,9 @@ DalvikNativeFunc dvmLookupInternalNativeMethod(const Method* method)
+                     pMeth->signature, method) == 0)
+                 {
+                     /* match */
+-                    //ALOGV("+++  match on %s.%s %s at %p",
++                    ALOGV("+++pras  match on %s.%s %s at %p",
++                        className, methodName, methodSignature, pMeth->fnPtr);
++                    //printf("+++pras  match on %s.%s %s at %p\n",
+                     //    className, methodName, methodSignature, pMeth->fnPtr);
+                     return pMeth->fnPtr;
+                 }
+diff --git a/vm/native/dalvik_system_Zygote.cpp b/vm/native/dalvik_system_Zygote.cpp
+index e2b618b..ae91274 100644
+--- a/vm/native/dalvik_system_Zygote.cpp
++++ b/vm/native/dalvik_system_Zygote.cpp
+@@ -127,6 +127,7 @@ static void sigchldHandler(int s)
+         ALOG(LOG_WARN, ZYGOTE_LOG_TAG,
+             "Zygote SIGCHLD error in waitpid: %s",strerror(errno));
+     }
++	ALOGI("PRASc: signalchildhandler: %x", (uint32_t)sigchldHandler);
+ }
+ 
+ /*
+@@ -224,7 +225,7 @@ static int setrlimitsFromArray(ArrayObject* rlimits)
+         ArrayObject * rlimit_tuple = tuples[i];
+         s4* contents = (s4 *)(void *)rlimit_tuple->contents;
+         int err;
+-
++		ALOGI("Prasc: setrlimitsFromArray: %x", (uint32_t)setrlimitsFromArray);
+         if (rlimit_tuple->length != 3) {
+             ALOGE("rlimits array must have a second dimension of size 3");
+             return -1;
+diff --git a/vm/native/java_lang_Runtime.cpp b/vm/native/java_lang_Runtime.cpp
+index 2d1c4fe..9fe7042 100644
+--- a/vm/native/java_lang_Runtime.cpp
++++ b/vm/native/java_lang_Runtime.cpp
+@@ -56,7 +56,7 @@ static void Dalvik_java_lang_Runtime_nativeExit(const u4* args,
+ #if defined(WITH_JIT) && defined(WITH_JIT_TUNING)
+     dvmCompilerDumpStats();
+ #endif
+-    ALOGD("Calling exit(%d)", status);
++    ALOGI("prasb: Calling exit(%d)", status);
+     exit(status);
+ }
+ 
+diff --git a/vm/oo/Class.cpp b/vm/oo/Class.cpp
+index db5340e..e895fef 100644
+--- a/vm/oo/Class.cpp
++++ b/vm/oo/Class.cpp
+@@ -1396,8 +1396,10 @@ static ClassObject* findClassFromLoaderNoInit(const char* descriptor,
+ 
+     dvmAddInitiatingLoader(clazz, loader);
+ 
+-    LOGVV("--- Successfully loaded %s %p (thisldr=%p clazz=%p)",
+-        descriptor, clazz->classLoader, loader, clazz);
++//    ALOGD("---pras: Successfully loaded %s %p (thisldr=%p clazz=%p)",
++//        descriptor, clazz->classLoader, loader, clazz);
++//    LOGVV("--- Successfully loaded %s %p (thisldr=%p clazz=%p)",
++//        descriptor, clazz->classLoader, loader, clazz);
+ 
+ bail:
+     dvmReleaseTrackedAlloc((Object*)nameObj, NULL);
+@@ -1477,10 +1479,12 @@ static ClassObject* findClassNoInit(const char* descriptor, Object* loader,
+     ClassObject* clazz;
+     bool profilerNotified = false;
+ 
+-    if (loader != NULL) {
+-        LOGVV("#### findClassNoInit(%s,%p,%p)", descriptor, loader,
+-            pDvmDex->pDexFile);
+-    }
++//pras    if (loader != NULL) {
++//pras        ALOGD("#### pras: findClassNoInit(%s,%p,%p)", descriptor, loader,
++//pras            pDvmDex->pDexFile);
++//pras        LOGVV("#### findClassNoInit(%s,%p,%p)", descriptor, loader,
++//pras            pDvmDex->pDexFile);
++//pras    }
+ 
+     /*
+      * We don't expect an exception to be raised at this point.  The
+@@ -1978,10 +1982,10 @@ static ClassObject* loadClassFromDex(DvmDex* pDvmDex,
+     result = loadClassFromDex0(pDvmDex, pClassDef, &header, pEncodedData,
+             classLoader);
+ 
+-    if (gDvm.verboseClass && (result != NULL)) {
+-        ALOGI("[Loaded %s from DEX %p (cl=%p)]",
+-            result->descriptor, pDvmDex, classLoader);
+-    }
++   //pras  if ((gDvm.verboseClass || 1) && (result != NULL)) {//pras
++   //pras      ALOGI("pras: [Loaded %s from DEX %p (cl=%p)]",
++   //pras          result->descriptor, pDvmDex, classLoader);
++   //pras  }
+ 
+     return result;
+ }
+@@ -2190,6 +2194,15 @@ static void loadMethodFromDex(ClassObject* clazz, const DexMethod* pDexMethod,
+ 
+         /* pointer to code area */
+         meth->insns = pDexCode->insns;
++		//if()
++		//if(((uint32_t)meth->insns > 0xc0000000))//to allow os to boot faster
++		{
++			ALOGD("pras: method dex: %s, methodIPtr: %x\n", meth->name, (uint32_t)meth->insns);
++		}
++		//else
++		//{
++	//	//	ALOGD("pras: method dex logged!\n");
++		//}
+     } else {
+         /*
+          * We don't have a DexCode block, but we still want to know how
+@@ -2210,6 +2223,15 @@ static void loadMethodFromDex(ClassObject* clazz, const DexMethod* pDexMethod,
+         if (dvmIsNativeMethod(meth)) {
+             meth->nativeFunc = dvmResolveNativeMethod;
+             meth->jniArgInfo = computeJniArgInfo(&meth->prototype);
++			//if((uint32_t)meth->nativeFunc > 0xc0000000)
++			//if(((uint32_t)meth->nativeFunc > 0xc0000000))//to allow os to boot faster
++			{
++				ALOGD("pras: method dex: %s, methodPtr: %x\n", meth->name, (uint32_t)meth->nativeFunc);
++			}
++			//else
++			//{
++//			//	ALOGD("pras method dex logged!\n");
++			//}
+         }
+     }
+ }
+@@ -2514,8 +2536,8 @@ bool dvmLinkClass(ClassObject* clazz)
+     assert(clazz != NULL);
+     assert(clazz->descriptor != NULL);
+     assert(clazz->status == CLASS_IDX || clazz->status == CLASS_LOADED);
+-    if (gDvm.verboseClass)
+-        ALOGV("CLASS: linking '%s'...", clazz->descriptor);
++//    if (gDvm.verboseClass || 1)//pras
++//        ALOGD("pras: CLASS: linking '%s'...", clazz->descriptor);
+ 
+     assert(gDvm.classJavaLangClass != NULL);
+     assert(clazz->clazz == gDvm.classJavaLangClass);
+@@ -2627,8 +2649,8 @@ bool dvmLinkClass(ClassObject* clazz)
+                     dvmThrowIllegalAccessError("interface not accessible");
+                     goto bail;
+                 }
+-                LOGVV("+++  found interface '%s'",
+-                      clazz->interfaces[i]->descriptor);
++               // ALOGD("+++ pras:  found interface '%s'",
++               //       clazz->interfaces[i]->descriptor);
+             }
+             dvmLinearReadOnly(clazz->classLoader, clazz->interfaces);
+         }
+@@ -4475,9 +4497,9 @@ noverify:
+      */
+     method = dvmFindDirectMethodByDescriptor(clazz, "<clinit>", "()V");
+     if (method == NULL) {
+-        LOGVV("No <clinit> found for %s", clazz->descriptor);
++        //ALOGD("pras: No <clinit> found for %s", clazz->descriptor);
+     } else {
+-        LOGVV("Invoking %s.<clinit>", clazz->descriptor);
++        //ALOGD("pras: Invoking %s.<clinit>", clazz->descriptor);
+         JValue unused;
+         dvmCallMethod(self, method, NULL, &unused);
+     }
+@@ -4576,7 +4598,7 @@ void dvmSetNativeFunc(Method* method, DalvikBridgeFunc func,
+         /* only update nativeFunc */
+         method->nativeFunc = func;
+     }
+-
++	ALOGI("pras: check all possible ptrs: func = %x, insns = %x, methdo = %x, this = %x\n", (uint32_t)func, (uint32_t)insns, (uint32_t)method, (uint32_t)(dvmSetNativeFunc));
+     dvmLinearReadOnly(clazz->classLoader, clazz->virtualMethods);
+     dvmLinearReadOnly(clazz->classLoader, clazz->directMethods);
+ }
+
+project external/qemu/
+diff --git a/Makefile.android b/Makefile.android
+index ec791a5..fb0a4a8 100755
+--- a/Makefile.android
++++ b/Makefile.android
+@@ -105,7 +105,7 @@ ifeq ($(HOST_OS),darwin)
+     else
+         ifneq (,$(mac_sdk_root))
+             MY_CFLAGS += -isysroot $(mac_sdk_root) -mmacosx-version-min=$(mac_sdk_version) -DMACOSX_DEPLOYMENT_TARGET=$(mac_sdk_version)
+-            MY_LDLIBS += -isysroot $(mac_sdk_root) -Wl,-syslibroot,$(mac_sdk_root) -mmacosx-version-min=$(mac_sdk_version)
++            MY_LDLIBS += -isysroot $(mac_sdk_root) -syslibroot,$(mac_sdk_root) -mmacosx-version-min=$(mac_sdk_version)
+ 
+             # Clang complains about this flag being not useful anymore.
+             MY_CFLAGS := $(filter-out -falign-functions=0,$(MY_CFLAGS))
+@@ -293,7 +293,7 @@ endef
+ 
+ # The common libraries
+ #
+-QEMU_SYSTEM_LDLIBS := -lm -L./d4-7 -ld4 -L./d4-7-64bit -ld4-64
++QEMU_SYSTEM_LDLIBS := -lm -L/media/haibo/big-disk/pras/android_repository/external/qemu/d4-7 -ld4 -L/media/haibo/big-disk/pras/android_repository/external/qemu/d4-7-64bit -ld4-64
+ ifeq ($(HOST_OS),windows)
+   QEMU_SYSTEM_LDLIBS += -mwindows -mconsole
+ endif
+@@ -315,11 +315,11 @@ else
+ endif
+ 
+ ifeq ($(HOST_OS),darwin)
+-  QEMU_SYSTEM_LDLIBS += -Wl,-framework,Cocoa,-framework,QTKit,-framework,CoreVideo
++  QEMU_SYSTEM_LDLIBS += -framework,Cocoa,-framework,QTKit,-framework,CoreVideo
+ 
+   # Required to avoid compilation errors when targetting i386 with newer
+   # XCode toolchain.
+-  MY_LDFLAGS32 += -Wl,-read_only_relocs,suppress
++  MY_LDFLAGS32 += -read_only_relocs,suppress
+ 
+   # SDK 10.6+ doesn't have __dyld_func_lookup anymore. Dynamic library lookup symbols
+   # are instead resolved at runtime
+diff --git a/d4-7-64bit/Makefile b/d4-7-64bit/Makefile
+old mode 100755
+new mode 100644
+index 19acddf..c1c9ac5
+--- a/d4-7-64bit/Makefile
++++ b/d4-7-64bit/Makefile
+@@ -65,7 +65,7 @@ CUSTOM_NAME = d4custom # this is really just a placeholder
+ 
+ CC = gcc
+ DEBUG=-DNDEBUG
+-CFLAGS = -O3 -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes $(DEBUG) -I$(D4_SRC)
++CFLAGS = -O3 -g -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes $(DEBUG) -I$(D4_SRC)
+ LDFLAGS = 
+ LIBS = 
+ RANLIB = ranlib
+diff --git a/d4-7-64bit/Makefile.in b/d4-7-64bit/Makefile.in
+index 124d595..6cebd78 100755
+--- a/d4-7-64bit/Makefile.in
++++ b/d4-7-64bit/Makefile.in
+@@ -69,6 +69,7 @@ CFLAGS = @CFLAGS@ $(DEBUG) -I$(D4_SRC)
+ LDFLAGS = @LDFLAGS@
+ LIBS = @LIBS@
+ RANLIB = @RANLIB@
++LD = @LD@
+ 
+ all: libd4-64.a dineroIV
+ 
+diff --git a/d4-7-64bit/binaryfmt.o b/d4-7-64bit/binaryfmt.o
+old mode 100755
+new mode 100644
+index 2513cbf..5acc242
+Binary files a/d4-7-64bit/binaryfmt.o and b/d4-7-64bit/binaryfmt.o differ
+diff --git a/d4-7-64bit/cmdargs.o b/d4-7-64bit/cmdargs.o
+old mode 100755
+new mode 100644
+index 64b952b..1faeee2
+Binary files a/d4-7-64bit/cmdargs.o and b/d4-7-64bit/cmdargs.o differ
+diff --git a/d4-7-64bit/cmdmain.o b/d4-7-64bit/cmdmain.o
+old mode 100755
+new mode 100644
+index 2131356..89d658c
+Binary files a/d4-7-64bit/cmdmain.o and b/d4-7-64bit/cmdmain.o differ
+diff --git a/d4-7-64bit/config.log b/d4-7-64bit/config.log
+index 0d6dff2..581bb7b 100755
+--- a/d4-7-64bit/config.log
++++ b/d4-7-64bit/config.log
+@@ -4,6 +4,9 @@ running configure, to aid debugging if configure makes a mistake.
+ configure:532: checking for gcc
+ configure:609: checking whether the C compiler (gcc -O3 ) works
+ configure:623: gcc -o conftest -O3   conftest.c  1>&5
++configure:620:1: warning: return type defaults to 'int' [-Wimplicit-int]
++ main(){return(0);}
++ ^
+ configure:643: checking whether the C compiler (gcc -O3 ) is a cross-compiler
+ configure:648: checking whether we are using GNU C
+ configure:672: checking whether gcc accepts -g
+diff --git a/d4-7-64bit/config.status b/d4-7-64bit/config.status
+index 4195607..6f5d241 100755
+--- a/d4-7-64bit/config.status
++++ b/d4-7-64bit/config.status
+@@ -2,9 +2,9 @@
+ # Generated automatically by configure.
+ # Run this file to recreate the current configuration.
+ # This directory was configured as follows,
+-# on host nzc5047-ThinkPad-T420:
++# on host gemdroid:
+ #
+-# ./configure 
++# ./configure  --bindir=/media/haibo/big-disk/pras/android_repository/prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/
+ #
+ # Compiler output produced by configure, useful for debugging
+ # configure, is in ./config.log if it exists.
+@@ -14,8 +14,8 @@ for ac_option
+ do
+   case "$ac_option" in
+   -recheck | --recheck | --rechec | --reche | --rech | --rec | --re | --r)
+-    echo "running ${CONFIG_SHELL-/bin/sh} ./configure  --no-create --no-recursion"
+-    exec ${CONFIG_SHELL-/bin/sh} ./configure  --no-create --no-recursion ;;
++    echo "running ${CONFIG_SHELL-/bin/sh} ./configure  --bindir=/media/haibo/big-disk/pras/android_repository/prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/ --no-create --no-recursion"
++    exec ${CONFIG_SHELL-/bin/sh} ./configure  --bindir=/media/haibo/big-disk/pras/android_repository/prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/ --no-create --no-recursion ;;
+   -version | --version | --versio | --versi | --vers | --ver | --ve | --v)
+     echo "./config.status generated by autoconf version 2.12"
+     exit 0 ;;
+@@ -43,7 +43,7 @@ s%@LIBS@%%g
+ s%@exec_prefix@%${prefix}%g
+ s%@prefix@%/usr/local%g
+ s%@program_transform_name@%s,x,x,%g
+-s%@bindir@%${exec_prefix}/bin%g
++s%@bindir@%/media/haibo/big-disk/pras/android_repository/prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/%g
+ s%@sbindir@%${exec_prefix}/sbin%g
+ s%@libexecdir@%${exec_prefix}/libexec%g
+ s%@datadir@%${prefix}/share%g
+diff --git a/d4-7-64bit/dineroIV b/d4-7-64bit/dineroIV
+index d69c6de..9c06baf 100755
+Binary files a/d4-7-64bit/dineroIV and b/d4-7-64bit/dineroIV differ
+diff --git a/d4-7-64bit/dinfmt.o b/d4-7-64bit/dinfmt.o
+old mode 100755
+new mode 100644
+index 3ee2f7f..89e2938
+Binary files a/d4-7-64bit/dinfmt.o and b/d4-7-64bit/dinfmt.o differ
+diff --git a/d4-7-64bit/libd4-64.a b/d4-7-64bit/libd4-64.a
+old mode 100755
+new mode 100644
+index a84a756..f225df3
+Binary files a/d4-7-64bit/libd4-64.a and b/d4-7-64bit/libd4-64.a differ
+diff --git a/d4-7-64bit/misc.o b/d4-7-64bit/misc.o
+old mode 100755
+new mode 100644
+index e927353..db036c1
+Binary files a/d4-7-64bit/misc.o and b/d4-7-64bit/misc.o differ
+diff --git a/d4-7-64bit/pixie32fmt.o b/d4-7-64bit/pixie32fmt.o
+old mode 100755
+new mode 100644
+index 234e1a4..2ac3c7b
+Binary files a/d4-7-64bit/pixie32fmt.o and b/d4-7-64bit/pixie32fmt.o differ
+diff --git a/d4-7-64bit/pixie64fmt.o b/d4-7-64bit/pixie64fmt.o
+old mode 100755
+new mode 100644
+index 70223a2..a5790a9
+Binary files a/d4-7-64bit/pixie64fmt.o and b/d4-7-64bit/pixie64fmt.o differ
+diff --git a/d4-7-64bit/ref.o b/d4-7-64bit/ref.o
+old mode 100755
+new mode 100644
+index f8e5c32..58d7d3b
+Binary files a/d4-7-64bit/ref.o and b/d4-7-64bit/ref.o differ
+diff --git a/d4-7-64bit/tracein.o b/d4-7-64bit/tracein.o
+old mode 100755
+new mode 100644
+index a06bd75..09e7a4a
+Binary files a/d4-7-64bit/tracein.o and b/d4-7-64bit/tracein.o differ
+diff --git a/d4-7-64bit/xdinfmt.o b/d4-7-64bit/xdinfmt.o
+old mode 100755
+new mode 100644
+index 3928ce8..8982d7a
+Binary files a/d4-7-64bit/xdinfmt.o and b/d4-7-64bit/xdinfmt.o differ
+diff --git a/d4-7/Makefile b/d4-7/Makefile
+old mode 100755
+new mode 100644
+index e993cf3..ecb9284
+--- a/d4-7/Makefile
++++ b/d4-7/Makefile
+@@ -63,12 +63,12 @@ CMD_SRC_LIST = $(D4_SRC)/cmdmain.c $(D4_SRC)/cmdargs.c $(D4_SRC)/tracein.c \
+ 	$(D4_SRC)/pixie32fmt.c $(D4_SRC)/pixie64fmt.c
+ CUSTOM_NAME = d4custom # this is really just a placeholder
+ 
+-CC = gcc
++CC = /media/haibo/big-disk/pras/android_repository/prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/i686-linux-gcc
+ DEBUG=-DNDEBUG
+-CFLAGS = -m32 -O3 -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes $(DEBUG) -I$(D4_SRC)
++CFLAGS = -O3 -g -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes $(DEBUG) -I$(D4_SRC)
+ LDFLAGS = 
+ LIBS = 
+-RANLIB = ranlib
++RANLIB = /media/haibo/big-disk/pras/android_repository/prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/i686-linux-ranlib
+ 
+ all: libd4.a dineroIV
+ 
+diff --git a/d4-7/Makefile.in b/d4-7/Makefile.in
+index 00348e5..6696a9d 100755
+--- a/d4-7/Makefile.in
++++ b/d4-7/Makefile.in
+@@ -69,6 +69,7 @@ CFLAGS = @CFLAGS@ $(DEBUG) -I$(D4_SRC)
+ LDFLAGS = @LDFLAGS@
+ LIBS = @LIBS@
+ RANLIB = @RANLIB@
++AR = @AR@
+ 
+ all: libd4.a dineroIV
+ 
+diff --git a/d4-7/binaryfmt.o b/d4-7/binaryfmt.o
+old mode 100755
+new mode 100644
+index 9ec92c6..888b9ea
+Binary files a/d4-7/binaryfmt.o and b/d4-7/binaryfmt.o differ
+diff --git a/d4-7/cmdargs.o b/d4-7/cmdargs.o
+old mode 100755
+new mode 100644
+index c12816c..6b74ad6
+Binary files a/d4-7/cmdargs.o and b/d4-7/cmdargs.o differ
+diff --git a/d4-7/cmdmain.o b/d4-7/cmdmain.o
+old mode 100755
+new mode 100644
+index 13286c9..1ce9c62
+Binary files a/d4-7/cmdmain.o and b/d4-7/cmdmain.o differ
+diff --git a/d4-7/config.log b/d4-7/config.log
+index 5ce6bd1..581bb7b 100755
+--- a/d4-7/config.log
++++ b/d4-7/config.log
+@@ -4,67 +4,23 @@ running configure, to aid debugging if configure makes a mistake.
+ configure:532: checking for gcc
+ configure:609: checking whether the C compiler (gcc -O3 ) works
+ configure:623: gcc -o conftest -O3   conftest.c  1>&5
++configure:620:1: warning: return type defaults to 'int' [-Wimplicit-int]
++ main(){return(0);}
++ ^
+ configure:643: checking whether the C compiler (gcc -O3 ) is a cross-compiler
+ configure:648: checking whether we are using GNU C
+-configure:657: gcc -E conftest.c
+ configure:672: checking whether gcc accepts -g
+ configure:701: checking how to run the C preprocessor
+-configure:722: gcc -E  conftest.c >/dev/null 2>conftest.out
+ configure:762: checking for AIX
+ configure:793: checking for ranlib
+ configure:821: checking for ANSI C header files
+-configure:834: gcc -E  conftest.c >/dev/null 2>conftest.out
+-configure:901: gcc -o conftest -O3 -g -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes   conftest.c  1>&5
+-configure: In function 'main':
+-configure:896:1: warning: implicit declaration of function 'exit' [-Wimplicit-function-declaration]
+-configure:896:67: warning: incompatible implicit declaration of built-in function 'exit' [enabled by default]
+ configure:926: checking for working const
+-configure:980: gcc -c -O3 -g -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes  conftest.c 1>&5
+-configure: In function 'main':
+-configure:950:5: warning: cast discards '__attribute__((const))' qualifier from pointer target type [-Wcast-qual]
+-configure:954:15: warning: unused variable 's' [-Wunused-variable]
+-configure:959:7: warning: declaration of 'x' shadows a previous local [-Wshadow]
+-configure:936:39: warning: shadowed declaration is here [-Wshadow]
+-configure:965:8: warning: declaration of 'p' shadows a previous local [-Wshadow]
+-configure:939:8: warning: shadowed declaration is here [-Wshadow]
+-configure:974:13: warning: unused variable 'foo' [-Wunused-variable]
+-configure:942:27: warning: unused variable 'zero' [-Wunused-variable]
+-configure:936:39: warning: unused variable 'x' [-Wunused-variable]
+-configure:956:8: warning: 't' is used uninitialized in this function [-Wuninitialized]
+-configure:971:21: warning: 'b' is used uninitialized in this function [-Wuninitialized]
+ configure:1001: checking for size_t
+ configure:1034: checking size of short
+-configure:1053: gcc -o conftest -O3 -g -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes   conftest.c  1>&5
+-configure:1044:1: warning: return type defaults to 'int' [-Wreturn-type]
+-configure: In function 'main':
+-configure:1047:3: warning: implicit declaration of function 'exit' [-Wimplicit-function-declaration]
+-configure:1047:11: warning: incompatible implicit declaration of built-in function 'exit' [enabled by default]
+-configure:1048:3: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long unsigned int' [-Wformat]
+ configure:1073: checking size of int
+-configure:1092: gcc -o conftest -O3 -g -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes   conftest.c  1>&5
+-configure:1083:1: warning: return type defaults to 'int' [-Wreturn-type]
+-configure: In function 'main':
+-configure:1086:3: warning: implicit declaration of function 'exit' [-Wimplicit-function-declaration]
+-configure:1086:11: warning: incompatible implicit declaration of built-in function 'exit' [enabled by default]
+-configure:1087:3: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long unsigned int' [-Wformat]
+ configure:1112: checking size of long
+-configure:1131: gcc -o conftest -O3 -g -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes   conftest.c  1>&5
+-configure:1122:1: warning: return type defaults to 'int' [-Wreturn-type]
+-configure: In function 'main':
+-configure:1125:3: warning: implicit declaration of function 'exit' [-Wimplicit-function-declaration]
+-configure:1125:11: warning: incompatible implicit declaration of built-in function 'exit' [enabled by default]
+-configure:1126:3: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long unsigned int' [-Wformat]
+ configure:1151: checking size of void*
+-configure:1170: gcc -o conftest -O3 -g -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes   conftest.c  1>&5
+-configure:1161:1: warning: return type defaults to 'int' [-Wreturn-type]
+-configure: In function 'main':
+-configure:1164:3: warning: implicit declaration of function 'exit' [-Wimplicit-function-declaration]
+-configure:1164:11: warning: incompatible implicit declaration of built-in function 'exit' [enabled by default]
+-configure:1165:3: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long unsigned int' [-Wformat]
+ configure:1195: checking for random
+-configure:1223: gcc -o conftest -O3 -g -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes   conftest.c  1>&5
+ configure:1195: checking for modf
+-configure:1223: gcc -o conftest -O3 -g -Wall -Wcast-qual -Wshadow -Wpointer-arith -Wmissing-prototypes   conftest.c  1>&5
+-configure:1207:6: warning: conflicting types for built-in function 'modf' [enabled by default]
+ configure:1346: checking if random is defined in stdlib.h
+ configure:1373: checking whether make sets ${MAKE}
+diff --git a/d4-7/config.status b/d4-7/config.status
+index 4195607..6f5d241 100755
+--- a/d4-7/config.status
++++ b/d4-7/config.status
+@@ -2,9 +2,9 @@
+ # Generated automatically by configure.
+ # Run this file to recreate the current configuration.
+ # This directory was configured as follows,
+-# on host nzc5047-ThinkPad-T420:
++# on host gemdroid:
+ #
+-# ./configure 
++# ./configure  --bindir=/media/haibo/big-disk/pras/android_repository/prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/
+ #
+ # Compiler output produced by configure, useful for debugging
+ # configure, is in ./config.log if it exists.
+@@ -14,8 +14,8 @@ for ac_option
+ do
+   case "$ac_option" in
+   -recheck | --recheck | --rechec | --reche | --rech | --rec | --re | --r)
+-    echo "running ${CONFIG_SHELL-/bin/sh} ./configure  --no-create --no-recursion"
+-    exec ${CONFIG_SHELL-/bin/sh} ./configure  --no-create --no-recursion ;;
++    echo "running ${CONFIG_SHELL-/bin/sh} ./configure  --bindir=/media/haibo/big-disk/pras/android_repository/prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/ --no-create --no-recursion"
++    exec ${CONFIG_SHELL-/bin/sh} ./configure  --bindir=/media/haibo/big-disk/pras/android_repository/prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/ --no-create --no-recursion ;;
+   -version | --version | --versio | --versi | --vers | --ver | --ve | --v)
+     echo "./config.status generated by autoconf version 2.12"
+     exit 0 ;;
+@@ -43,7 +43,7 @@ s%@LIBS@%%g
+ s%@exec_prefix@%${prefix}%g
+ s%@prefix@%/usr/local%g
+ s%@program_transform_name@%s,x,x,%g
+-s%@bindir@%${exec_prefix}/bin%g
++s%@bindir@%/media/haibo/big-disk/pras/android_repository/prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/%g
+ s%@sbindir@%${exec_prefix}/sbin%g
+ s%@libexecdir@%${exec_prefix}/libexec%g
+ s%@datadir@%${prefix}/share%g
+diff --git a/d4-7/dineroIV b/d4-7/dineroIV
+index 5483c73..169b85b 100755
+Binary files a/d4-7/dineroIV and b/d4-7/dineroIV differ
+diff --git a/d4-7/dinfmt.o b/d4-7/dinfmt.o
+old mode 100755
+new mode 100644
+index f97d3bd..27f705b
+Binary files a/d4-7/dinfmt.o and b/d4-7/dinfmt.o differ
+diff --git a/d4-7/libd4.a b/d4-7/libd4.a
+old mode 100755
+new mode 100644
+index 0450970..40b143a
+Binary files a/d4-7/libd4.a and b/d4-7/libd4.a differ
+diff --git a/d4-7/misc.o b/d4-7/misc.o
+old mode 100755
+new mode 100644
+index 5a78139..1732944
+Binary files a/d4-7/misc.o and b/d4-7/misc.o differ
+diff --git a/d4-7/pixie32fmt.o b/d4-7/pixie32fmt.o
+old mode 100755
+new mode 100644
+index 43ed092..df53885
+Binary files a/d4-7/pixie32fmt.o and b/d4-7/pixie32fmt.o differ
+diff --git a/d4-7/pixie64fmt.o b/d4-7/pixie64fmt.o
+old mode 100755
+new mode 100644
+index 03bff32..92cdd59
+Binary files a/d4-7/pixie64fmt.o and b/d4-7/pixie64fmt.o differ
+diff --git a/d4-7/ref.o b/d4-7/ref.o
+old mode 100755
+new mode 100644
+index c075203..d0f2224
+Binary files a/d4-7/ref.o and b/d4-7/ref.o differ
+diff --git a/d4-7/tracein.o b/d4-7/tracein.o
+old mode 100755
+new mode 100644
+index a5893d7..dfc56e4
+Binary files a/d4-7/tracein.o and b/d4-7/tracein.o differ
+diff --git a/d4-7/xdinfmt.o b/d4-7/xdinfmt.o
+old mode 100755
+new mode 100644
+index 9f7c780..e96f0b4
+Binary files a/d4-7/xdinfmt.o and b/d4-7/xdinfmt.o differ
+diff --git a/disas.c b/disas.c
+index 6cba09c..8622f96 100755
+--- a/disas.c
++++ b/disas.c
+@@ -28,6 +28,7 @@ void printFloatStatus(CPUArchState *env, int my_byte_index, char  dest[3000])
+ {
+ 
+ #ifdef TARGET_ARM
++
+ 	CPUARMState *my_env = (CPUARMState *)env;
+ 	//printf("fp_status: ");
+ 	print_fields_arm(vfp.fp_status.float_detect_tininess, %d);
+@@ -1076,65 +1077,122 @@ typedef struct hashset{
+ 	hash_member *printed_blocks;
+ 	int count, max;
+ } hashset;
+-static hashset *my_hashset = NULL;
+-static int foundInHashset(target_ulong pc, target_ulong size)
++static hashset *my_bb_print_tracker = NULL, *my_jit_print_tracker = NULL;
++//static int foundInHashset(target_ulong pc, target_ulong size)
++//{
++//	int i = 0;
++//	for(i = 0; i < my_bb_print_tracker->count; i++)
++//	{
++//		if(my_bb_print_tracker->printed_blocks[i].pc == pc && my_bb_print_tracker->printed_blocks[i].size == size)
++//		{
++//			return i;
++//		}
++//	}
++//	return 0;
++//}
++int alreadyPrinted(target_ulong pc, target_ulong size, int isBBPrint)
+ {
+-	int i = 0;
+-	for(i = 0; i < my_hashset->count; i++)
++	if(isBBPrint)
+ 	{
+-		if(my_hashset->printed_blocks[i].pc == pc && my_hashset->printed_blocks[i].size == size)
++		if(my_bb_print_tracker == NULL)
+ 		{
+-			return i;
++			my_bb_print_tracker = (hashset*)malloc(sizeof(hashset));
++			my_bb_print_tracker->printed_blocks = (hash_member *)malloc(sizeof(hash_member)*100);
++			my_bb_print_tracker->max = 100;
++			my_bb_print_tracker->count = 0;
++			my_bb_print_tracker->printed_blocks[my_bb_print_tracker->count].pc = pc;
++			my_bb_print_tracker->printed_blocks[my_bb_print_tracker->count].size = size;
++			my_bb_print_tracker->count++;
++			return 0;
+ 		}
+-	}
+-	return 0;
+-}
+-static int alreadyPrinted(target_ulong pc, target_ulong size)
+-{
+-	if(my_hashset == NULL)
+-	{
+-		my_hashset = (hashset*)malloc(sizeof(hashset));
+-		my_hashset->printed_blocks = (hash_member *)malloc(sizeof(hash_member)*100);
+-		my_hashset->max = 100;
+-		my_hashset->count = 0;
+-		my_hashset->printed_blocks[my_hashset->count].pc = pc;
+-		my_hashset->printed_blocks[my_hashset->count].size = size;
+-		my_hashset->count++;
+-		return 0;
+-	}
+-	int i = 0;
+-	for(i = 0; i < my_hashset->count; i++)
+-	{
+-		if(my_hashset->printed_blocks[i].pc == pc && my_hashset->printed_blocks[i].size == size)
++		int i = 0;
++		for(i = 0; i < my_bb_print_tracker->count; i++)
++		{
++			if(my_bb_print_tracker->printed_blocks[i].pc == pc && my_bb_print_tracker->printed_blocks[i].size == size)
++			{
++				return i+1;
++			}
++		}
++		//if(foundInHashset(pc, size))return 1;
++		if(my_bb_print_tracker->count < my_bb_print_tracker->max)
+ 		{
+-			return i+1;
++			my_bb_print_tracker->printed_blocks[my_bb_print_tracker->count].pc = pc;
++			my_bb_print_tracker->printed_blocks[my_bb_print_tracker->count].size = size;
++			my_bb_print_tracker->count++;
+ 		}
+-	}
+-	//if(foundInHashset(pc, size))return 1;
+-	if(my_hashset->count < my_hashset->max)
+-	{
+-		my_hashset->printed_blocks[my_hashset->count].pc = pc;
+-		my_hashset->printed_blocks[my_hashset->count].size = size;
+-		my_hashset->count++;
++		else
++		{
++			hash_member *new_alloc = realloc(my_bb_print_tracker->printed_blocks, sizeof(hash_member)*(my_bb_print_tracker->max+100));
++			if(!new_alloc)
++			{
++				printf("hashset is a memory overhead.. allocated %d bytes OR %d basic blocks: use/implement tb_fast to do this..\n", sizeof(hash_member)*my_bb_print_tracker->max, my_bb_print_tracker->max);
++				exit(0);
++			}
++			else
++			{
++				my_bb_print_tracker->printed_blocks = new_alloc;
++				my_bb_print_tracker->max = my_bb_print_tracker->max+100;
++				my_bb_print_tracker->printed_blocks[my_bb_print_tracker->count].pc = pc;
++				my_bb_print_tracker->printed_blocks[my_bb_print_tracker->count].size = size;
++				my_bb_print_tracker->count++;
++			}
++		}
++		return 0;
+ 	}
+ 	else
+ 	{
+-		hash_member *new_alloc = realloc(my_hashset->printed_blocks, sizeof(hash_member)*(my_hashset->max+100));
+-		if(!new_alloc)
++		if(my_jit_print_tracker == NULL)
++		{
++			my_jit_print_tracker = (hashset*)malloc(sizeof(hashset));
++			my_jit_print_tracker->printed_blocks = (hash_member *)malloc(sizeof(hash_member)*100);
++			my_jit_print_tracker->max = 100;
++			my_jit_print_tracker->count = 0;
++			my_jit_print_tracker->printed_blocks[my_jit_print_tracker->count].pc = pc;
++			my_jit_print_tracker->printed_blocks[my_jit_print_tracker->count].size = size;
++			my_jit_print_tracker->count++;
++			return 0;
++		}
++		int i = 0;
++		for(i = 0; i < my_jit_print_tracker->count; i++)
++		{
++			if(my_jit_print_tracker->printed_blocks[i].pc == pc && my_jit_print_tracker->printed_blocks[i].size == size)
++			{
++				long temp_0 = my_jit_print_tracker->printed_blocks[0].pc;
++				long temp_s = my_jit_print_tracker->printed_blocks[0].size;
++				my_jit_print_tracker->printed_blocks[0].pc = pc;
++				my_jit_print_tracker->printed_blocks[0].size = size;
++
++				my_jit_print_tracker->printed_blocks[i].pc = temp_0;
++				my_jit_print_tracker->printed_blocks[i].size = temp_s;
++				return i+1;
++			}
++		}
++		//if(foundInHashset(pc, size))return 1;
++		if(my_jit_print_tracker->count < my_jit_print_tracker->max)
+ 		{
+-			printf("hashset is a memory overhead.. allocated %d bytes OR %d basic blocks: use/implement tb_fast to do this..\n", sizeof(hash_member)*my_hashset->max, my_hashset->max);
+-			exit(0);
++			my_jit_print_tracker->printed_blocks[my_jit_print_tracker->count].pc = pc;
++			my_jit_print_tracker->printed_blocks[my_jit_print_tracker->count].size = size;
++			my_jit_print_tracker->count++;
+ 		}
+ 		else
+ 		{
+-			my_hashset->printed_blocks = new_alloc;
+-			my_hashset->max = my_hashset->max+100;
+-			my_hashset->printed_blocks[my_hashset->count].pc = pc;
+-			my_hashset->printed_blocks[my_hashset->count].size = size;
+-			my_hashset->count++;
++			hash_member *new_alloc = realloc(my_jit_print_tracker->printed_blocks, sizeof(hash_member)*(my_jit_print_tracker->max+100));
++			if(!new_alloc)
++			{
++				printf("hashset is a memory overhead.. allocated %d bytes OR %d basic blocks: use/implement tb_fast to do this..\n", sizeof(hash_member)*my_jit_print_tracker->max, my_jit_print_tracker->max);
++				exit(0);
++			}
++			else
++			{
++				my_jit_print_tracker->printed_blocks = new_alloc;
++				my_jit_print_tracker->max = my_jit_print_tracker->max+100;
++				my_jit_print_tracker->printed_blocks[my_jit_print_tracker->count].pc = pc;
++				my_jit_print_tracker->printed_blocks[my_jit_print_tracker->count].size = size;
++				my_jit_print_tracker->count++;
++			}
+ 		}
++		return 0;
+ 	}
+-	return 0;
+ }
+ //pras adds ends here
+ /* Get LENGTH bytes from info's buffer, at target address memaddr.
+@@ -1439,7 +1497,7 @@ void target_disas(FILE *out, CPUArchState *env, target_ulong code,
+ 		if(CPU_tracer &&  matchMeInPidTid(env))//current_pid == needed_pid && needed_pid > 0)
+ 		{
+ 			printRegisters(env, "before entering:");
+-			if(!alreadyPrinted(code,  size))
++			if(!alreadyPrinted(code,  size, 1))
+ 			{
+ 				for (pc = code; size > 0; pc += count, size -= count) {
+ 					//GemDroid Added - Check if the following line needs to be commented?
+diff --git a/gemdroid-tracer.c b/gemdroid-tracer.c
+index e330716..c58f2c6 100755
+--- a/gemdroid-tracer.c
++++ b/gemdroid-tracer.c
+@@ -5,7 +5,7 @@
+ //int init_cache();
+ 
+ int notInsLoad = 0, notPageTableLookup = 1, _365_softmmu = 1;
+-int twoAts = 1;
++int twoAts = 0;//ENABLE ONLY THIS FOR MEM DUMPS
+ int threeAts = 0;
+ int twoCarets = 0;
+ int IP_tracer = 0;
+@@ -15,7 +15,7 @@ int CPU_tracer = 1;
+ //PRAS: original int CPU_tracer = 0;
+ int ICOUNT_tracer = 0;
+ 
+-char *needed_proc_name = "facebook";//
++char *needed_proc_name = "dialer";//
+ char pid_string[10] = "(  000: ";//this is how logcat -v thread
+ char garb_string[10] = "(  000: ";//this is how logcat -v thread
+ int needed_pid = -1, garb_pid = -1;
+diff --git a/hw/android/goldfish/tty.c b/hw/android/goldfish/tty.c
+index c357213..c256991 100755
+--- a/hw/android/goldfish/tty.c
++++ b/hw/android/goldfish/tty.c
+@@ -93,7 +93,7 @@ static uint32_t goldfish_tty_read(void *opaque, hwaddr offset)
+ }
+ static int printLength = 300;
+ static char pras_temp_line[1000];
+-static int pras_line_length = 0;
++static int pras_line_length = 0, jitPrinting = 0, jitStartedFlag = 0;
+ static void goldfish_tty_write(void *opaque, hwaddr offset, uint32_t value)
+ {
+     struct tty_state *s = (struct tty_state *)opaque;
+@@ -156,8 +156,71 @@ static void goldfish_tty_write(void *opaque, hwaddr offset, uint32_t value)
+ 									pras_temp_line[pras_line_length+1] = '\0';
+ 									if(temp[my_iter] == '\n')
+ 									{
+-										//if(strstr(pras_temp_line, "ActivityManager"))
+-										if(strstr(pras_temp_line, needed_proc_name))
++										//if(!jitStartedFlag && strstr(pras_temp_line, "ActivityManager") && strstr(pras_temp_line, "): Start proc") && strstr(pras_temp_line, needed_proc_name))
++										{
++											//char *pid_string_t = (strstr(pras_temp_line, "pid")+4);
++											//printf("**\n%s\n**\n", pid_string_t);
++											//if(*(pid_string_t+3)==' ')
++											//{
++											//	char pid_s[10] = {'(',' ',' ',*pid_string_t, *(pid_string_t+1), *(pid_string_t+2),')', ':',' ', '\0'};
++											//	needed_pid = (*(pid_string_t + 0) - '0') * 100 + (*(pid_string_t + 1) - '0') * 10 +(*(pid_string_t + 2) - '0') * 1 ;
++											//	int iTemp = 0;
++											//	for(iTemp = 0; iTemp < 10; iTemp++)
++											//	{
++											//		pid_string[iTemp] = pid_s[iTemp];
++											//	}
++											//	printf("line: %s \n%s\n[found pid? = %d]*%s*\n",pras_temp_line, pid_s, needed_pid, pid_string);
++											//}
++											//else
++											//{
++											//	char pid_s[10] = {'(',' ',*pid_string_t, *(pid_string_t+1), *(pid_string_t+2),*(pid_string_t+3),')',':',' ', '\0'};
++											//	needed_pid = (*(pid_string_t + 0) - '0') * 1000 + (*(pid_string_t + 1) - '0') * 100 +(*(pid_string_t + 2) - '0') * 10 + (*(pid_string_t + 3) - '0') * 1 ;
++											//	int iTemp = 0;
++											//	for(iTemp = 0; iTemp < 10; iTemp++)
++											//	{
++											//		pid_string[iTemp] = pid_s[iTemp];
++											//	}
++											//	printf("line: %s \n%s\n[found pid? = %d]*%s*\n",pras_temp_line, pid_s, needed_pid, pid_string);
++											//}
++											jitStartedFlag = 1;
++										}
++										if(jitStartedFlag && strstr(pras_temp_line, "/dalvikvm(") && 
++												( strstr(pras_temp_line, "TRACEINFO") || strstr(pras_temp_line, "installed")) || strstr(pras_temp_line, "methodPtr") || strstr(pras_temp_line, "class") ||strstr(pras_temp_line, "pras"))//&& strstr(pras_temp_line, pid_string)) jitStartedFlag && 
++										{
++									//		if(!jitStartedFlag)
++									//		{
++									//			//jitStartedFlag = strstr(pras_temp_line, "JIT started for system_server");
++									//			//jitStartedFlag = 1;
++									//		}
++									//		if(jitStartedFlag)
++									//		{
++									//			if(!jitPrinting)
++									//			{
++									//				jitPrinting = 1;
++									//				//jitPrinting = strstr(pras_temp_line, "--------");
++									//			}
++										//	char pc_str[11] = "";
++										//	char *index = strstr(pras_temp_line, "0x");
++										//	int tempIter = 0;
++										//	for(tempIter = 0; tempIter < 10; tempIter++)
++										//	{
++										//		pc_str[tempIter] = *(index+tempIter);
++										//		pc_str[tempIter+1] = '\0';
++										//	}
++											//extern int alreadyPrinted(uint64_t pc, uint64_t size, int isBBPrint);
++											//	if(!alreadyPrinted(strtoul(pc_str, (char**)0, 0), 100, 0))
++												{
++													pras_temp_line[999]='\0';
++													printf("%s", pras_temp_line);
++													//if(strstr(pras_temp_line, "): 0x"))
++													//{
++													//	//REMOVE: jitPrinting = 0;
++													//	//dont flood instruction dumps
++													//}
++												}
++									//		}
++										}
++										else if(strstr(pras_temp_line, needed_proc_name))
+ 										{
+ 											//pras
+ 											//printf("activitymanager: %s\n",pras_temp_line);
+@@ -223,6 +286,11 @@ static void goldfish_tty_write(void *opaque, hwaddr offset, uint32_t value)
+ 												}
+ 											}
+ 										}
++										//else
++										//{
++										//	printf(pras_temp_line);
++										//}
++
+ 										//pras_temp_line[0]='\0';
+ 										pras_line_length = 0;
+ 									}
+diff --git a/tags b/tags
+index 38b9a00..d090e74 100644
+--- a/tags
++++ b/tags
+@@ -56571,7 +56571,7 @@ need_update	ui/vnc.h	/^    int need_update;$/;"	m	struct:VncState
+ needed	distrib/sdl-1.2.15/include/SDL_audio.h	/^	int needed;			\/**< Set to 1 if conversion possible *\/$/;"	m	struct:SDL_AudioCVT
+ needed	include/migration/vmstate.h	/^    bool (*needed)(void *opaque);$/;"	m	struct:VMStateSubsection
+ needed_pid	gemdroid-tracer.c	/^int needed_pid = -1, garb_pid = -1;$/;"	v
+-needed_proc_name	gemdroid-tracer.c	/^char *needed_proc_name = "calendar";\/\/$/;"	v
++needed_proc_name	gemdroid-tracer.c	/^char *needed_proc_name = "dalvik";\/\/$/;"	v
+ needed_tid_length	gemdroid-tracer.c	/^int needed_tid_length = 0;$/;"	v
+ needed_tids	gemdroid-tracer.c	/^int needed_tids[1000];$/;"	v
+ needs_zeroed	distrib/jpeg-6b/jquant2.c	/^  boolean needs_zeroed;		\/* TRUE if next pass must zero histogram *\/$/;"	m	struct:__anon286	file:
+diff --git a/tcg/tcg.c b/tcg/tcg.c
+index 6e87e81..7bf9ca8 100755
+--- a/tcg/tcg.c
++++ b/tcg/tcg.c
+@@ -2882,19 +2882,33 @@ static void tcg_register_jit_int(void *buf_ptr, size_t buf_size,
+     img->phdr.p_memsz = buf_size;
+ 
+     img->shdr[1].sh_name = find_string(img->str, ".text");
++	printf(img->shdr[1].sh_name);
++	printf("\n");
+     img->shdr[1].sh_addr = buf;
+     img->shdr[1].sh_size = buf_size;
+ 
+     img->shdr[2].sh_name = find_string(img->str, ".debug_info");
+     img->shdr[3].sh_name = find_string(img->str, ".debug_abbrev");
+ 
++	printf(img->shdr[2].sh_name);
++	printf("\n");
++	printf(img->shdr[3].sh_name);
++	printf("\n");
+     img->shdr[4].sh_name = find_string(img->str, ".debug_frame");
+     img->shdr[4].sh_size = debug_frame_size;
+ 
++	printf(img->shdr[4].sh_name);
++	printf("\n");
+     img->shdr[5].sh_name = find_string(img->str, ".symtab");
+     img->shdr[6].sh_name = find_string(img->str, ".strtab");
+ 
++	printf(img->shdr[5].sh_name);
++	printf("\n");
++	printf(img->shdr[6].sh_name);
++	printf("\n");
+     img->sym[1].st_name = find_string(img->str, "code_gen_buffer");
++	printf(img->sym[1].st_name);
++	printf("\n");
+     img->sym[1].st_value = buf;
+     img->sym[1].st_size = buf_size;
+ 
+diff --git a/vl-android.c b/vl-android.c
+index da4da91..fd5eb62 100755
+--- a/vl-android.c
++++ b/vl-android.c
+@@ -2077,6 +2077,7 @@ void android_nand_add_image(const char* part_name,
+ 
+ int main(int argc, char **argv, char **envp)
+ {
++	printf("bienvenue!willkommen! tracing %s\n", needed_proc_name);
+     const char *gdbstub_dev = NULL;
+     uint32_t boot_devices_bitmap = 0;
+     int i;
+@@ -2222,7 +2223,7 @@ int main(int argc, char **argv, char **envp)
+             } else {
+                 optarg = NULL;
+             }
+-
++			printf("parsing int arguments: %d %s\n", popt->index, optarg);
+             switch(popt->index) {
+             case QEMU_OPTION_M:
+                 machine = find_machine(optarg);
+@@ -2847,11 +2848,12 @@ int main(int argc, char **argv, char **envp)
+             case QEMU_OPTION_mic:
+                 audio_input_source = (char*)optarg;
+                 break;
+-#ifdef CONFIG_NAND
++#ifdef CONFIG_NAND 
++#if 0
+             case QEMU_OPTION_nand:
+                 nand_add_dev(optarg);
+                 break;
+-
++#endif
+ #endif
+ #ifdef CONFIG_HAX
+             case QEMU_OPTION_enable_hax:
+@@ -3185,9 +3187,14 @@ int main(int argc, char **argv, char **envp)
+         char  tmp[64];
+         snprintf(tmp, sizeof(tmp), "%dm", android_hw->vm_heapSize);
+         boot_property_add("dalvik.vm.heapsize",tmp);
++		boot_property_add("log.redirect-stdio","true");
++       // boot_property_add("dalvik.vm.extra-opts","-Xjitverbose -Xzygote -verbose:jni");
++	//	boot_property_add("dalvik.vm.extra-opts", "-DVERY_VERBOSE_LOG=true -verbose:jni ");
++        printf("added boot property: dalvik.vm.heapsize, %s\n",tmp);
+     }
+ 
+     /* From API 19 and above, the platform provides an explicit property for low memory devices. */
++	printf("hw ramsize = %d \n", android_hw->hw_ramSize);
+     if (android_hw->hw_ramSize <= 512) {
+         boot_property_add("ro.config.low_ram", "true");
+     }
+
+project libnativehelper/
+diff --git a/JNIHelp.cpp b/JNIHelp.cpp
+index ef4d862..c07f79e 100644
+--- a/JNIHelp.cpp
++++ b/JNIHelp.cpp
+@@ -73,8 +73,8 @@ extern "C" int jniRegisterNativeMethods(C_JNIEnv* env, const char* className,
+     const JNINativeMethod* gMethods, int numMethods)
+ {
+     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
+-
+-    ALOGV("Registering %s's %d native methods...", className, numMethods);
++	//pras
++    ALOGI("pras: Registering %s's %d native methods...", className, numMethods);
+ 
+     scoped_local_ref<jclass> c(env, findClass(env, className));
+     if (c.get() == NULL) {
+diff --git a/JniInvocation.cpp b/JniInvocation.cpp
+index acd019a..6f440b4 100644
+--- a/JniInvocation.cpp
++++ b/JniInvocation.cpp
+@@ -97,6 +97,8 @@ bool JniInvocation::Init(const char* library) {
+                   "JNI_GetCreatedJavaVMs")) {
+     return false;
+   }
++  //pras
++	ALOGI("pras: jni lib load pass: %s\n", library);
+   return true;
+ }
+ 
+@@ -120,6 +122,7 @@ bool JniInvocation::FindSymbol(void** pointer, const char* symbol) {
+     handle_ = NULL;
+     return false;
+   }
++  ALOGI("pras: %s pointer = %x", symbol, (uint32_t)pointer);
+   return true;
+ }
+ 
+diff --git a/include/nativehelper/jni.h b/include/nativehelper/jni.h
+index 1c2fb0c..c6413d1 100644
+--- a/include/nativehelper/jni.h
++++ b/include/nativehelper/jni.h
+@@ -26,7 +26,7 @@
+ 
+ #include <stdarg.h>
+ #include <stdint.h>
+-
++#include <stdio.h>
+ /* Primitive types that match up with Java equivalents. */
+ typedef uint8_t  jboolean; /* unsigned 8 bits */
+ typedef int8_t   jbyte;    /* signed 8 bits */
+@@ -975,7 +975,14 @@ struct _JNIEnv {
+ 
+     jint RegisterNatives(jclass clazz, const JNINativeMethod* methods,
+         jint nMethods)
+-    { return functions->RegisterNatives(this, clazz, methods, nMethods); }
++    {
++		//int i = 0;
++		//for(; i < nMethods; i++)
++		//{
++		//	printf("pras: method: %s(%s) methodPtr: %x\n", methods[i].name, methods[i].signature, (uint32_t)methods[i].fnPtr);
++		//}
++		return functions->RegisterNatives(this, clazz, methods, nMethods); 
++	}
+ 
+     jint UnregisterNatives(jclass clazz)
+     { return functions->UnregisterNatives(this, clazz); }

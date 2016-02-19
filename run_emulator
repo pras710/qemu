@@ -1,0 +1,8 @@
+source build/envsetup.sh
+lunch
+out/host/linux-x86/bin/emulator -no-window -logcat "*:V"|grep pras
+
+###################################################################
+echo 1 > /proc/sys/kernel/kptr_restrict
+cat /proc/kallsyms
+logcat *:V
